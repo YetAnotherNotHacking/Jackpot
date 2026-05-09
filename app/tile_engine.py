@@ -23,11 +23,13 @@ class TileEngine:
         tile_root: str,
         tile_size: int,
         max_zoom: int,
+        max_descendant_depth: int,
         repo: TileRepository,
     ):
         self.tile_root = tile_root
         self.tile_size = tile_size
         self.max_zoom = max_zoom
+        self.max_descendant_depth = max(0, max_descendant_depth)
         self.repo = repo
         self._lock = threading.RLock()
         os.makedirs(self.tile_root, exist_ok=True)
@@ -172,15 +174,13 @@ class TileEngine:
 
         touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
-        min_level = 0
-        max_level = self.max_zoom
+        max_level = min(self.max_zoom, z + self.max_descendant_depth)
 
         with self._lock:
-            for level in range(min_level, max_level + 1):
+            for level in range(z, max_level + 1):
                 level_scale = 2 ** (level - z)
-                level_size = size * level_scale
-                # Keep propagated edits visible on distant LoD levels.
-                radius_px = max(1.5, level_size / 2.0)
+                level_size = max(1.0, size * level_scale)
+                radius_px = level_size / 2.0
                 color = self._parse_color(color_hex, 255)
                 erase_strength = 255
                 span = self.tile_world_span(level)
@@ -215,21 +215,9 @@ class TileEngine:
 
             now_ms = int(time.time() * 1000)
             updates: List[Tuple[int, int, int, int]] = []
-            invalidated_parents: Set[TileCoord] = set()
-            
             for coord in touched:
                 mtime = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
                 updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
-                
-                # Mark all parent tiles as invalidated
-                for parent_z in range(coord.z - 1, -1, -1):
-                    factor = 2 ** (coord.z - parent_z)
-                    parent_x = math.floor(coord.x / factor)
-                    parent_y = math.floor(coord.y / factor)
-                    parent_coord = TileCoord(parent_z, parent_x, parent_y)
-                    if parent_coord not in invalidated_parents:
-                        invalidated_parents.add(parent_coord)
-                        updates.append((parent_z, parent_x, parent_y, now_ms))
 
             rows = self.repo.upsert_tiles(updates)
 
@@ -242,20 +230,19 @@ class TileEngine:
                     "y": row["y"],
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?v={row['version']}&t={row['updated_ms']}",
+                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
                 }
             )
 
-        return {"updated": result_updates, "invalidated": []}
+        edited_level = [u for u in result_updates if u["z"] == z]
+        invalidated = [u for u in result_updates if u["z"] > z]
+        return {"updated": edited_level, "invalidated": invalidated}
 
     def diff_visible_tiles(self, z: int, requested: List[Dict]) -> List[Dict]:
         z = max(0, min(self.max_zoom, int(z)))
         coords = [(int(item["x"]), int(item["y"])) for item in requested]
         known = {
-            (int(item["x"]), int(item["y"])): (
-                int(item.get("known_mtime") or 0),
-                int(item.get("known_version") or 0),
-            )
+            (int(item["x"]), int(item["y"])): int(item.get("known_mtime") or 0)
             for item in requested
         }
 
@@ -266,8 +253,7 @@ class TileEngine:
             row = meta.get((x, y))
             if not row:
                 continue
-            known_mtime, known_version = known.get((x, y), (0, 0))
-            if row["updated_ms"] == known_mtime and row["version"] == known_version:
+            if row["updated_ms"] == known.get((x, y), 0):
                 continue
             changed.append(
                 {
@@ -276,7 +262,7 @@ class TileEngine:
                     "y": y,
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{z}/{x}/{y}.png?v={row['version']}&t={row['updated_ms']}",
+                    "url": f"/tile/{z}/{x}/{y}.png?t={row['updated_ms']}",
                 }
             )
         return changed

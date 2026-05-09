@@ -9,6 +9,7 @@ services:
       APP_NAME: AceDraw
       TILE_SIZE: 512
       MAX_ZOOM: 10
+      MAX_DESCENDANT_DEPTH: 2
       TILE_ROOT: /app/data/tiles
       DATABASE_URL: postgresql://acedraw:acedraw@db:5432/acedraw
       REDIS_URL: redis://redis:6379/0
