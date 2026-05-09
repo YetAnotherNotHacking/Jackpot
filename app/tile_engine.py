@@ -23,13 +23,13 @@ class TileEngine:
         tile_root: str,
         tile_size: int,
         max_zoom: int,
-        max_propagation_depth: int,
+        max_descendant_depth: int,
         repo: TileRepository,
     ):
         self.tile_root = tile_root
         self.tile_size = tile_size
         self.max_zoom = max_zoom
-        self.max_propagation_depth = max(0, max_propagation_depth)
+        self.max_descendant_depth = max(0, max_descendant_depth)
         self.repo = repo
         self._lock = threading.RLock()
         os.makedirs(self.tile_root, exist_ok=True)
@@ -174,21 +174,15 @@ class TileEngine:
 
         touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
-        min_level = max(0, z - self.max_propagation_depth)
+        max_level = min(self.max_zoom, z + self.max_descendant_depth)
 
         with self._lock:
-            for level in range(z, min_level - 1, -1):
+            for level in range(z, max_level + 1):
                 level_scale = 2 ** (level - z)
                 level_size = max(1.0, size * level_scale)
                 radius_px = level_size / 2.0
-
-                if level == z:
-                    alpha_weight = 1.0
-                else:
-                    alpha_weight = max(0.12, 0.55 ** (z - level))
-
-                color = self._parse_color(color_hex, int(255 * alpha_weight))
-                erase_strength = int(255 * alpha_weight)
+                color = self._parse_color(color_hex, 255)
+                erase_strength = 255
                 span = self.tile_world_span(level)
 
                 for wx, wy in sampled_points:
@@ -241,7 +235,7 @@ class TileEngine:
             )
 
         edited_level = [u for u in result_updates if u["z"] == z]
-        invalidated = [u for u in result_updates if u["z"] != z]
+        invalidated = [u for u in result_updates if u["z"] > z]
         return {"updated": edited_level, "invalidated": invalidated}
 
     def diff_visible_tiles(self, z: int, requested: List[Dict]) -> List[Dict]:
