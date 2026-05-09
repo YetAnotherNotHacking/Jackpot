@@ -503,12 +503,12 @@
 
   brushSize.addEventListener("input", () => {
     size = parseInt(brushSize.value, 10);
-    brushSizeLabel.textContent = `${size}px`;
+    brushSizeLabel.textContent = `${size} px`;
   });
 
   zoomSlider.addEventListener("input", () => {
     zoom = parseInt(zoomSlider.value, 10);
-    zoomLabel.textContent = `z${zoom}`;
+    zoomLabel.textContent = `Level ${zoom}`;
     queueRender();
     scheduleTileRequest(true, true);
   });

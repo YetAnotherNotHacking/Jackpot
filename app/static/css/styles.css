@@ -1,6 +1,6 @@
 :root {
-  --paper: #f7f4ec;
-  --ink: #181613;
+  --paper: #000000;
+  --ink: #980000ff;
   --accent: #d95c37;
   --soft: #e7dfcf;
   --panel-width: 230px;
@@ -63,8 +63,8 @@ body {
 }
 
 .tool-btn {
-  border: 1px solid #ad9c7a;
-  background: #f8f2e4;
+  border: 1px solid #980000ff;
+  background: #000000;
   color: var(--ink);
   font-size: 0.95rem;
   padding: 8px;
@@ -73,7 +73,7 @@ body {
 
 .tool-btn.active {
   background: var(--ink);
-  color: #fff9ef;
+  color: #980000ff;
   border-color: var(--ink);
 }
 
