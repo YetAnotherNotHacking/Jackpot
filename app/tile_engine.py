@@ -233,9 +233,7 @@ class TileEngine:
                 }
             )
 
-        edited_level = [u for u in result_updates if u["z"] == z]
-        invalidated = [u for u in result_updates if u["z"] != z]
-        return {"updated": edited_level, "invalidated": invalidated}
+        return {"updated": result_updates, "invalidated": []}
 
     def diff_visible_tiles(self, z: int, requested: List[Dict]) -> List[Dict]:
         z = max(0, min(self.max_zoom, int(z)))
