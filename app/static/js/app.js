@@ -256,7 +256,12 @@
   function installTile(tile) {
     const key = keyFor(tile.z, tile.x, tile.y);
     const existing = tileStore.get(key);
-    if (existing && existing.mtime === tile.mtime && existing.image) {
+    if (
+      existing &&
+      existing.mtime === tile.mtime &&
+      existing.version === tile.version &&
+      existing.image
+    ) {
       dirtyKeys.delete(key);
       return;
     }
@@ -268,6 +273,7 @@
         x: tile.x,
         y: tile.y,
         mtime: tile.mtime,
+        version: tile.version || 0,
         image,
       });
       dirtyKeys.delete(key);
@@ -297,6 +303,7 @@
       const existing = tileStore.get(key);
       if (existing) {
         existing.mtime = tile.mtime;
+        existing.version = tile.version || existing.version || 0;
         existing.image = null;
         tileStore.set(key, existing);
       } else {
@@ -305,6 +312,7 @@
           x: tile.x,
           y: tile.y,
           mtime: tile.mtime,
+          version: tile.version || 0,
           image: null,
         });
       }
@@ -345,7 +353,8 @@
         const k = keyFor(zoom, x, y);
         const existing = tileStore.get(k);
         const knownMtime = dirtyKeys.has(k) ? 0 : (existing ? existing.mtime : 0);
-        tiles.push({ x, y, known_mtime: knownMtime });
+        const knownVersion = dirtyKeys.has(k) ? 0 : (existing ? existing.version || 0 : 0);
+        tiles.push({ x, y, known_mtime: knownMtime, known_version: knownVersion });
       }
     }
 
