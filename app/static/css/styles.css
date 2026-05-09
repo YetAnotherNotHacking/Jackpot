@@ -1,0 +1,128 @@
+:root {
+  --paper: #f7f4ec;
+  --ink: #181613;
+  --accent: #d95c37;
+  --soft: #e7dfcf;
+  --panel-width: 230px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at 20% 20%, #fefaf1, #f2ebdc 60%, #ede5d3);
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: var(--panel-width) 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.toolbar {
+  border-right: 1px solid #c9bea6;
+  background: linear-gradient(180deg, #f7efdf, #efe6d3);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brand {
+  width: 92px;
+  height: 92px;
+  border: 2px solid var(--ink);
+  background: #fff8ea;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-label {
+  font-size: 0.83rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tool-btn {
+  border: 1px solid #ad9c7a;
+  background: #f8f2e4;
+  color: var(--ink);
+  font-size: 0.95rem;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.tool-btn.active {
+  background: var(--ink);
+  color: #fff9ef;
+  border-color: var(--ink);
+}
+
+.value-label {
+  font-size: 0.88rem;
+  color: #4c4128;
+}
+
+.help-text {
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: #574d37;
+  margin: 4px 0 0;
+}
+
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+#drawCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: crosshair;
+  background:
+    linear-gradient(45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
+    #faf6ec;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+
+  .toolbar {
+    border-right: none;
+    border-bottom: 1px solid #c9bea6;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .brand {
+    width: 68px;
+    height: 68px;
+  }
+}

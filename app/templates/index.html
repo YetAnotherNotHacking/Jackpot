@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ app_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <div class="layout">
+    <aside class="toolbar">
+      <div class="brand">{{ app_name }}</div>
+
+      <div class="tool-group">
+        <label class="tool-label">Tool</label>
+        <button id="penTool" class="tool-btn active">Pen</button>
+        <button id="eraserTool" class="tool-btn">Eraser</button>
+      </div>
+
+      <div class="tool-group">
+        <label class="tool-label" for="penColor">Pen Color</label>
+        <input id="penColor" type="color" value="#111111">
+      </div>
+
+      <div class="tool-group">
+        <label class="tool-label" for="brushSize">Brush Size</label>
+        <input id="brushSize" type="range" min="1" max="120" value="16">
+        <div id="brushSizeLabel" class="value-label">16px</div>
+      </div>
+
+      <div class="tool-group">
+        <label class="tool-label" for="zoomLevel">Zoom Level</label>
+        <input id="zoomLevel" type="range" min="0" max="{{ max_zoom }}" value="2">
+        <div id="zoomLabel" class="value-label">z2</div>
+      </div>
+
+      <p class="help-text">Left click to draw. Right click or middle click drag to pan. Mouse wheel to zoom.</p>
+    </aside>
+
+    <main class="canvas-wrap">
+      <canvas id="drawCanvas"></canvas>
+    </main>
+  </div>
+
+  <script>
+    window.ACEDRAW_CONFIG = {
+      tileSize: {{ tile_size }},
+      maxZoom: {{ max_zoom }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
