@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 tiles/
 .env
+.codex/
+.agents/
