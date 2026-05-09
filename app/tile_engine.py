@@ -179,7 +179,8 @@ class TileEngine:
             for level in range(min_level, max_level + 1):
                 level_scale = 2 ** (level - z)
                 level_size = size * level_scale
-                radius_px = max(0.5, level_size / 2.0)
+                # Keep propagated edits visible on distant LoD levels.
+                radius_px = max(1.5, level_size / 2.0)
                 color = self._parse_color(color_hex, 255)
                 erase_strength = 255
                 span = self.tile_world_span(level)
@@ -229,7 +230,7 @@ class TileEngine:
                     "y": row["y"],
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
+                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?v={row['version']}&t={row['updated_ms']}",
                 }
             )
 
@@ -239,7 +240,10 @@ class TileEngine:
         z = max(0, min(self.max_zoom, int(z)))
         coords = [(int(item["x"]), int(item["y"])) for item in requested]
         known = {
-            (int(item["x"]), int(item["y"])): int(item.get("known_mtime") or 0)
+            (int(item["x"]), int(item["y"])): (
+                int(item.get("known_mtime") or 0),
+                int(item.get("known_version") or 0),
+            )
             for item in requested
         }
 
@@ -250,7 +254,8 @@ class TileEngine:
             row = meta.get((x, y))
             if not row:
                 continue
-            if row["updated_ms"] == known.get((x, y), 0):
+            known_mtime, known_version = known.get((x, y), (0, 0))
+            if row["updated_ms"] == known_mtime and row["version"] == known_version:
                 continue
             changed.append(
                 {
@@ -259,7 +264,7 @@ class TileEngine:
                     "y": y,
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{z}/{x}/{y}.png?t={row['updated_ms']}",
+                    "url": f"/tile/{z}/{x}/{y}.png?v={row['version']}&t={row['updated_ms']}",
                 }
             )
         return changed
