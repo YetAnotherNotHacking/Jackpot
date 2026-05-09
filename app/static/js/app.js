@@ -508,7 +508,7 @@
 
   zoomSlider.addEventListener("input", () => {
     zoom = parseInt(zoomSlider.value, 10);
-    zoomLabel.textContent = `Level ${zoom}`;
+    zoomLabel.textContent = `Layer ${zoom}`;
     queueRender();
     scheduleTileRequest(true, true);
   });
