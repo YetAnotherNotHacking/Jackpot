@@ -1,6 +1,7 @@
 :root {
   --paper: #000000;
   --ink: #980000ff;
+  --ink2: #000000ff;
   --accent: #d95c37;
   --soft: #e7dfcf;
   --panel-width: 230px;
@@ -63,30 +64,22 @@ body {
 }
 
 .tool-btn {
-  border: 1px solid #980000ff;
-  background: #000000;
+  background: var(--ink2);
   color: var(--ink);
   font-size: 0.95rem;
   padding: 8px;
   cursor: pointer;
+  border-radius : 25px;
 }
 
 .tool-btn.active {
   background: var(--ink);
-  color: #980000ff;
-  border-color: var(--ink);
+  color: var(--ink2);
 }
 
 .value-label {
   font-size: 0.88rem;
   color: #4c4128;
-}
-
-.help-text {
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: #574d37;
-  margin: 4px 0 0;
 }
 
 .canvas-wrap {
@@ -115,7 +108,7 @@ body {
 
   .toolbar {
     border-right: none;
-    border-bottom: 1px solid #c9bea6;
+    border-bottom: 1px solid #ffffff;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-start;
