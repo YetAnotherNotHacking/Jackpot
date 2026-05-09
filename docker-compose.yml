@@ -4,7 +4,6 @@ services:
     container_name: acedraw-app
     depends_on:
       - db
-      - redis
     environment:
       APP_NAME: AceDraw
       TILE_SIZE: 512
@@ -12,7 +11,6 @@ services:
       MAX_DESCENDANT_DEPTH: 2
       TILE_ROOT: /app/data/tiles
       DATABASE_URL: postgresql://acedraw:acedraw@db:5432/acedraw
-      REDIS_URL: redis://redis:6379/0
     ports:
       - "5000:5000"
     volumes:
@@ -27,11 +25,6 @@ services:
       POSTGRES_PASSWORD: acedraw
     volumes:
       - acedraw_db:/var/lib/postgresql/data
-
-  redis:
-    image: redis:7-alpine
-    container_name: acedraw-redis
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
 
 volumes:
   acedraw_db:

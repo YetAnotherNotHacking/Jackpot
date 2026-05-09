@@ -1,3 +1,4 @@
+import io
 import math
 import os
 import threading
@@ -50,11 +51,14 @@ class TileEngine:
         return self._build_tile_from_ancestors(z, x, y)
 
     def _load_existing_tile(self, z: int, x: int, y: int) -> Optional[Image.Image]:
-        path = self._tile_path(z, x, y, ensure_dir=False)
-        if not os.path.exists(path):
+        image_data = self.repo.get_tile_image(z, x, y)
+        if image_data is None:
             return None
-        with Image.open(path) as loaded:
-            return loaded.convert("RGBA")
+        try:
+            with Image.open(io.BytesIO(image_data)) as loaded:
+                return loaded.convert("RGBA")
+        except Exception:
+            return None
 
     def _build_tile_from_ancestors(self, z: int, x: int, y: int) -> Image.Image:
         # New high-detail tiles inherit their nearest existing ancestor so zooming

@@ -1,12 +1,12 @@
 import json
 import os
 import threading
+import time
 import uuid
 from typing import Dict, List
 
-from flask import Flask, Response, jsonify, render_template, send_file
+from flask import Flask, Response, jsonify, render_template
 from flask_sock import Sock
-from redis import Redis
 
 from .config import Config
 from .database import TileRepository
@@ -23,8 +23,8 @@ def create_app() -> Flask:
 
     repo = TileRepository(app.config["DATABASE_URL"])
     repo.init_db()
+    repo.init_cursors_table()
 
-    redis_client = Redis.from_url(app.config["REDIS_URL"], decode_responses=True)
     tile_engine = TileEngine(
         tile_root=app.config["TILE_ROOT"],
         tile_size=app.config["TILE_SIZE"],
@@ -32,8 +32,6 @@ def create_app() -> Flask:
         max_descendant_depth=app.config["MAX_DESCENDANT_DEPTH"],
         repo=repo,
     )
-
-    os.makedirs(app.config["TILE_ROOT"], exist_ok=True)
 
     sock = Sock(app)
     clients: Dict[str, object] = {}
@@ -74,18 +72,55 @@ def create_app() -> Flask:
         except ValueError:
             return Response(status=400)
 
-        path = tile_engine.tile_file_path(z, x_int, y_int)
-        if not os.path.exists(path):
+        image_data = tile_engine.repo.get_tile_image(z, x_int, y_int)
+        if image_data is None:
+            # Fallback for legacy on-disk tiles while binary storage migrates.
+            legacy_path = tile_engine.tile_file_path(z, x_int, y_int)
+            if os.path.exists(legacy_path):
+                with open(legacy_path, "rb") as legacy_tile:
+                    image_data = legacy_tile.read()
+                # Self-heal: once a legacy tile is served, persist it in DB.
+                tile_engine.repo.upsert_tiles(
+                    [
+                        (
+                            z,
+                            x_int,
+                            y_int,
+                            int(time.time() * 1000),
+                            image_data,
+                        )
+                    ]
+                )
+        if image_data is None:
             return Response(status=404)
-        response = send_file(path, mimetype="image/png")
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        response = Response(image_data, mimetype="image/png")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
         return response
 
-    @app.route("/clear", methods=["POST"])
-    def clear_drawings() -> Response:
-        tile_engine.clear_tiles()
-        broadcast({"type": "tiles_cleared"})
-        return jsonify({"ok": True})
+    @app.route("/debug/tile/<int:z>/<x>/<y>")
+    def debug_tile_storage(z: int, x: str, y: str):
+        try:
+            x_int = int(x)
+            y_int = int(y)
+        except ValueError:
+            return jsonify({"ok": False, "error": "invalid coords"}), 400
+
+        stats = tile_engine.repo.get_tile_storage_stats(z, x_int, y_int)
+        legacy_path = tile_engine.tile_file_path(z, x_int, y_int)
+        legacy_exists = os.path.exists(legacy_path)
+
+        return jsonify(
+            {
+                "ok": True,
+                "z": z,
+                "x": x_int,
+                "y": y_int,
+                "db_tile": stats,
+                "legacy_file_exists": legacy_exists,
+            }
+        )
 
     @sock.route("/ws")
     def ws_handler(ws):
@@ -119,15 +154,12 @@ def create_app() -> Flask:
 
                 if message_type == "cursor":
                     cursor = payload.get("cursor", {})
-                    redis_client.hset(
-                        f"cursor:{client_id}",
-                        mapping={
-                            "z": int(cursor.get("z", 0)),
-                            "x": float(cursor.get("x", 0.0)),
-                            "y": float(cursor.get("y", 0.0)),
-                        },
+                    repo.upsert_cursor(
+                        client_id,
+                        int(cursor.get("z", 0)),
+                        float(cursor.get("x", 0.0)),
+                        float(cursor.get("y", 0.0)),
                     )
-                    redis_client.expire(f"cursor:{client_id}", 20)
 
                 elif message_type == "stroke":
                     result = tile_engine.apply_stroke(payload)
@@ -187,7 +219,7 @@ def create_app() -> Flask:
             with clients_lock:
                 clients.pop(client_id, None)
             try:
-                redis_client.delete(f"cursor:{client_id}")
+                repo.delete_cursor(client_id)
             except Exception:  # noqa: BLE001
                 pass
 
