@@ -25,7 +25,7 @@ tiles/
    - auto-upgrade to sharper tiles when higher LoD is available.
 6. Parent/child inheritance:
    - missing child tiles are derived from nearest ancestor tile,
-   - edits at a zoom level propagate to deeper zoom levels (full color, no weighting).
+   - edits at a zoom level propagate to both lower and higher zoom levels (full color, no weighting).
 
 ## Run with Docker
 
@@ -35,9 +35,8 @@ docker compose up --build
 
 Open: `http://localhost:5000`
 
-### Performance knobs
+### Config knobs
 
-- `MAX_DESCENDANT_DEPTH` (default `2`): how many deeper zoom levels are updated when drawing.
 - `MAX_ZOOM` (default `10`): deepest zoom level.
 
 ## Controls

@@ -283,6 +283,10 @@
   }
 
   function markInvalidated(tiles) {
+    if (!tiles || tiles.length === 0) {
+      return;
+    }
+
     let needsVisibleRefresh = false;
     const b = getVisibleBounds(zoom);
 
@@ -462,6 +466,9 @@
       }
 
       if (msg.type === "stroke_result") {
+        for (const tile of msg.updated || []) {
+          installTile(tile);
+        }
         markInvalidated(msg.invalidated || []);
 
         const requestId = msg.request_id;
@@ -469,10 +476,6 @@
           pendingOverlays.delete(requestId);
           scheduleTileRequest(true, true);
           queueRender();
-        } else {
-          for (const tile of msg.updated || []) {
-            installTile(tile);
-          }
         }
       }
 
