@@ -77,7 +77,7 @@ def create_app() -> Flask:
         if not os.path.exists(path):
             return Response(status=404)
         response = send_file(path, mimetype="image/png")
-        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        response.headers["Cache-Control"] = "public, max-age=60"
         return response
 
     @sock.route("/ws")
