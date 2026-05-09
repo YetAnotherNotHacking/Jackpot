@@ -1,7 +1,9 @@
 :root {
-  --red: #980000ff;
+  --dark-red: #980000ff;
+  --light-red: #c00000ff;
   --black: #000000ff;
   --white: #ffffffff;
+  --yellow-white: #78634217;
   --panel-width: 230px;
 }
 
@@ -16,7 +18,7 @@ body {
   width: 100%;
   height: 100%;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-  color: var(--red);
+  color: var(--white);
   background: radial-gradient(circle at 20% 20%, #fefaf1, #f2ebdc 60%, #ede5d3);
 }
 
@@ -28,8 +30,8 @@ body {
 }
 
 .toolbar {
-  border-right: 1px solid #c9bea6;
-  background: var(--white);
+  border-right: 5px solid var(--white);
+  background: var(--black);
   padding: 14px;
   display: flex;
   flex-direction: column;
@@ -39,7 +41,7 @@ body {
 .brand {
   width: 92px;
   height: 92px;
-  border: 2px solid var(--red);
+  border: 2px solid var(--dark-red);
   background: #fff8ea;
   display: flex;
   align-items: center;
@@ -63,8 +65,8 @@ body {
 
 .tool-btn {
   background: var(--black);
-  color: var(--red);
-  border-color: var(--white);
+  color: var(--white);
+  border-color: var(--dark-red);
   font-size: 0.95rem;
   padding: 8px;
   cursor: pointer;
@@ -72,13 +74,13 @@ body {
 }
 
 .tool-btn.active {
-  background: var(--red);
-  color: var(--black);
+  background: var(--dark-red);
+  color: var(--white);
 }
 
 .value-label {
   font-size: 0.88rem;
-  color: #4c4128;
+  color: var(--white);
 }
 
 .canvas-wrap {
@@ -92,10 +94,10 @@ body {
   display: block;
   cursor: crosshair;
   background:
-    linear-gradient(45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(-45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
-    linear-gradient(-45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, transparent 75%, var(--yellow-white) 75%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, var(--yellow-white) 75%) -8px 0 / 16px 16px,
     #faf6ec;
 }
 

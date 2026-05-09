@@ -598,7 +598,7 @@
       if (zoom === prevZoom) return;
 
       zoomSlider.value = String(zoom);
-      zoomLabel.textContent = `z${zoom}`;
+      zoomLabel.textContent = `Layer ${zoom}`;
       queueRender();
       scheduleTileRequest(true, true);
     },
