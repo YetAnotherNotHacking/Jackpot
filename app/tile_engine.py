@@ -1,4 +1,5 @@
 import io
+import io
 import math
 import os
 import threading
@@ -53,6 +54,13 @@ class TileEngine:
     def _load_existing_tile(self, z: int, x: int, y: int) -> Optional[Image.Image]:
         image_data = self.repo.get_tile_image(z, x, y)
         if image_data is None:
+        image_data = self.repo.get_tile_image(z, x, y)
+        if image_data is None:
+            return None
+        try:
+            with Image.open(io.BytesIO(image_data)) as loaded:
+                return loaded.convert("RGBA")
+        except Exception:
             return None
         try:
             with Image.open(io.BytesIO(image_data)) as loaded:
@@ -84,26 +92,12 @@ class TileEngine:
 
         return Image.new("RGBA", (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
-    def _save_tile(self, z: int, x: int, y: int, image: Image.Image) -> int:
-        path = self._tile_path(z, x, y)
-        image.save(path, format="PNG")
-        return int(time.time() * 1000)
-
-    def clear_tiles(self) -> None:
-        with self._lock:
-            for root, _, files in os.walk(self.tile_root, topdown=False):
-                for filename in files:
-                    if filename.endswith(".png"):
-                        try:
-                            os.remove(os.path.join(root, filename))
-                        except FileNotFoundError:
-                            pass
-                if root != self.tile_root and not os.listdir(root):
-                    try:
-                        os.rmdir(root)
-                    except OSError:
-                        pass
-            self.repo.clear_tiles()
+    def _save_tile(self, z: int, x: int, y: int, image: Image.Image) -> Tuple[int, bytes]:
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        image_bytes = buffer.getvalue()
+        mtime = int(time.time() * 1000)
+        return mtime, image_bytes
 
     def _world_to_tile(self, wx: float, wy: float, z: int) -> Tuple[int, int, float, float]:
         span = self.tile_world_span(z)
@@ -243,118 +237,22 @@ class TileEngine:
                             touched.add(coord)
 
             now_ms = int(time.time() * 1000)
-            updates: List[Tuple[int, int, int, int]] = []
+            updates: List[Tuple[int, int, int, int, Optional[bytes]]] = []
+            invalidated_parents: Set[TileCoord] = set()
+
             for coord in touched:
-                mtime = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
-                updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
-
-            rows = self.repo.upsert_tiles(updates)
-
-        result_updates = []
-        for row in rows:
-            result_updates.append(
-                {
-                    "z": row["z"],
-                    "x": row["x"],
-                    "y": row["y"],
-                    "mtime": row["updated_ms"],
-                    "version": row["version"],
-                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
-                }
-            )
-
-        edited_level = [u for u in result_updates if u["z"] == z]
-        invalidated = [u for u in result_updates if u["z"] > z]
-        return {"updated": edited_level, "invalidated": invalidated}
-
-    def apply_fill(self, payload: Dict) -> Dict:
-        z = int(payload.get("z", 0))
-        z = max(0, min(self.max_zoom, z))
-        wx = float(payload.get("x", 0.0))
-        wy = float(payload.get("y", 0.0))
-        color_hex = payload.get("color", "#111111")
-
-        fill_color = self._parse_color(color_hex, 255)
-        touched: Set[TileCoord] = set()
-        tile_cache: Dict[TileCoord, Image.Image] = {}
-
-        with self._lock:
-            # Step 1: Get target color at the clicked position at zoom z
-            span_z = self.tile_world_span(z)
-            tx_z = math.floor(wx / span_z)
-            ty_z = math.floor(wy / span_z)
-            local_world_x = wx - (tx_z * span_z)
-            local_world_y = wy - (ty_z * span_z)
-            px_z = int((local_world_x / span_z) * self.tile_size)
-            py_z = int((local_world_y / span_z) * self.tile_size)
-
-            target_tile = self._load_or_create(z, tx_z, ty_z)
-            if px_z < 0 or px_z >= self.tile_size or py_z < 0 or py_z >= self.tile_size:
-                return {"updated": [], "invalidated": []}
-
-            target_color = target_tile.getpixel((px_z, py_z))
-            
-            # Skip if already the target color
-            if target_color[:3] == fill_color[:3]:
-                return {"updated": [], "invalidated": []}
-
-            # Step 2: Apply fill at all levels from 0 to z (ancestors and clicked level)
-            # This matches how the stroke tool works
-            for level in range(0, z + 1):
-                if level == z:
-                    # At clicked level, use exact coordinates
-                    level_span = span_z
-                    level_tx = tx_z
-                    level_ty = ty_z
-                    level_px = px_z
-                    level_py = py_z
-                    level_target_color = target_color
-                else:
-                    # At ancestor levels, scale down coordinates
-                    level_scale = 2 ** (z - level)
-                    level_span = self.tile_world_span(level)
-                    level_tx = math.floor(wx / level_span)
-                    level_ty = math.floor(wy / level_span)
-                    level_local_x = wx - (level_tx * level_span)
-                    level_local_y = wy - (level_ty * level_span)
-                    level_px = int((level_local_x / level_span) * self.tile_size)
-                    level_py = int((level_local_y / level_span) * self.tile_size)
-                    
-                    # Get target color at this level
-                    level_coord = TileCoord(level, level_tx, level_ty)
-                    if level_coord not in tile_cache:
-                        tile_cache[level_coord] = self._load_or_create(level, level_tx, level_ty)
-                    level_tile = tile_cache[level_coord]
-                    
-                    if (level_px < 0 or level_px >= self.tile_size or 
-                        level_py < 0 or level_py >= self.tile_size):
-                        continue
-                    
-                    level_target_color = level_tile.getpixel((level_px, level_py))
-
-                # Skip if already the target color at this level
-                if level_target_color[:3] == fill_color[:3]:
-                    continue
-
-                # Flood fill at this level across potentially multiple tiles
-                filled_tiles = self._flood_fill_across_tiles(
-                    level,
-                    level_tx,
-                    level_ty,
-                    level_px,
-                    level_py,
-                    level_target_color,
-                    fill_color,
-                    tile_cache
-                )
+                mtime, image_bytes = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
+                updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms), image_bytes))
                 
-                touched.update(TileCoord(level, tx, ty) for tx, ty, _, _ in filled_tiles)
-
-            now_ms = int(time.time() * 1000)
-            updates: List[Tuple[int, int, int, int]] = []
-            for coord in touched:
-                mtime = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
-                updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
+                # Mark all parent tiles as invalidated
+                for parent_z in range(coord.z - 1, -1, -1):
+                    factor = 2 ** (coord.z - parent_z)
+                    parent_x = math.floor(coord.x / factor)
+                    parent_y = math.floor(coord.y / factor)
+                    parent_coord = TileCoord(parent_z, parent_x, parent_y)
+                    if parent_coord not in invalidated_parents:
+                        invalidated_parents.add(parent_coord)
+                        updates.append((parent_z, parent_x, parent_y, now_ms, None))
 
             rows = self.repo.upsert_tiles(updates)
 
