@@ -17,6 +17,9 @@ body {
   padding: 0;
   width: 100%;
   height: 100%;
+  border-top: 12px solid var(--black);
+  border-right: 12px solid var(--black);
+  border-bottom: 12px solid var(--black);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   color: var(--white);
   background: radial-gradient(circle at 20% 20%, #fefaf1, #f2ebdc 60%, #ede5d3);
@@ -30,7 +33,7 @@ body {
 }
 
 .toolbar {
-  border-right: 5px solid var(--white);
+  border-right: 5px solid var(--dark-red);
   background: var(--black);
   padding: 14px;
   display: flex;
