@@ -24,6 +24,8 @@ tiles/
    - local-first stroke preview with single commit on stroke end,
    - throttled viewport tile requests,
    - and capped propagation depth (`MAX_PROPAGATION_DEPTH`) for map-like responsiveness.
+9. Child tile inheritance:
+   - if a high-detail tile does not exist yet, rendering and first edit initialization inherit pixels from the nearest ancestor tile.
 
 ## Architecture
 
