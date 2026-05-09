@@ -29,7 +29,6 @@ def create_app() -> Flask:
         tile_root=app.config["TILE_ROOT"],
         tile_size=app.config["TILE_SIZE"],
         max_zoom=app.config["MAX_ZOOM"],
-        max_descendant_depth=app.config["MAX_DESCENDANT_DEPTH"],
         repo=repo,
     )
 
