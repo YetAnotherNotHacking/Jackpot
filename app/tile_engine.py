@@ -215,9 +215,21 @@ class TileEngine:
 
             now_ms = int(time.time() * 1000)
             updates: List[Tuple[int, int, int, int]] = []
+            invalidated_parents: Set[TileCoord] = set()
+            
             for coord in touched:
                 mtime = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
                 updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
+                
+                # Mark all parent tiles as invalidated
+                for parent_z in range(coord.z - 1, -1, -1):
+                    factor = 2 ** (coord.z - parent_z)
+                    parent_x = math.floor(coord.x / factor)
+                    parent_y = math.floor(coord.y / factor)
+                    parent_coord = TileCoord(parent_z, parent_x, parent_y)
+                    if parent_coord not in invalidated_parents:
+                        invalidated_parents.add(parent_coord)
+                        updates.append((parent_z, parent_x, parent_y, now_ms))
 
             rows = self.repo.upsert_tiles(updates)
 
