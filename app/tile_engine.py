@@ -175,11 +175,17 @@ class TileEngine:
         touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
         max_level = min(self.max_zoom, z + self.max_descendant_depth)
+        min_level = 0
 
         with self._lock:
-            for level in range(z, max_level + 1):
-                level_scale = 2 ** (level - z)
-                level_size = max(1.0, size * level_scale)
+            for level in range(min_level, max_level + 1):
+                if level >= z:
+                    level_scale = 2 ** (level - z)
+                    level_size = max(1.0, size * level_scale)
+                else:
+                    level_scale = 2 ** (z - level)
+                    level_size = max(1.0, size / level_scale)
+
                 radius_px = level_size / 2.0
                 color = self._parse_color(color_hex, 255)
                 erase_strength = 255
