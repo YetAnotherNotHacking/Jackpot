@@ -5,7 +5,6 @@
 
   const TILE_REQUEST_DEBOUNCE_MS = 90;
   const CURSOR_SEND_INTERVAL_MS = 60;
-  const STROKE_FLUSH_MS = 45;
   const MIN_STROKE_STEP_PX = 1.5;
   const MAX_TILE_CACHE = 1400;
 
@@ -39,15 +38,14 @@
   let queuedTileRequest = false;
   let queuedTileRequestForce = false;
   let lastViewportSignature = "";
-
   let lastCursorSentAt = 0;
-  let strokeBuffer = [];
-  let strokeFlushTimer = null;
 
   const camera = { x: 0, y: 0 };
 
   const tileStore = new Map();
   const dirtyKeys = new Set();
+  const pendingOverlays = new Map();
+  let activeOverlay = null;
 
   function keyFor(z, x, y) {
     return `${z}:${x}:${y}`;
@@ -141,6 +139,73 @@
     return false;
   }
 
+  function drawFallbackFromAncestor(z, x, y, dx, dy, dw, dh) {
+    for (let ancestorZ = z - 1; ancestorZ >= 0; ancestorZ -= 1) {
+      const factor = 2 ** (z - ancestorZ);
+      const ancestorX = Math.floor(x / factor);
+      const ancestorY = Math.floor(y / factor);
+      const ancestor = tileStore.get(keyFor(ancestorZ, ancestorX, ancestorY));
+      if (!ancestor || !ancestor.image) {
+        continue;
+      }
+
+      const localX = x - (ancestorX * factor);
+      const localY = y - (ancestorY * factor);
+      const srcSpan = tileSize / factor;
+      const sx = localX * srcSpan;
+      const sy = localY * srcSpan;
+      ctx.drawImage(ancestor.image, sx, sy, srcSpan, srcSpan, dx, dy, dw, dh);
+      return true;
+    }
+
+    return false;
+  }
+
+  function drawOverlay(overlay) {
+    if (!overlay || overlay.z !== zoom || overlay.points.length === 0) {
+      return;
+    }
+
+    ctx.save();
+    ctx.lineWidth = overlay.size;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    if (overlay.tool === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = overlay.color;
+    }
+
+    if (overlay.points.length === 1) {
+      const p = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, overlay.size / 2, 0, Math.PI * 2);
+      if (overlay.tool === "eraser") {
+        ctx.fillStyle = "rgba(0,0,0,1)";
+      } else {
+        ctx.fillStyle = overlay.color;
+      }
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
+
+    const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+
+    for (let i = 1; i < overlay.points.length; i += 1) {
+      const p = worldToScreen(overlay.points[i].x, overlay.points[i].y);
+      ctx.lineTo(p.x, p.y);
+    }
+
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function render() {
     const rect = canvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
@@ -150,14 +215,22 @@
     for (const t of tiles) {
       const key = keyFor(zoom, t.x, t.y);
       const tile = tileStore.get(key);
-      if (!tile || !tile.image) continue;
-
       const span = tileWorldSpan(zoom);
       const worldX = t.x * span;
       const worldY = t.y * span;
       const p = worldToScreen(worldX, worldY);
-      ctx.drawImage(tile.image, p.x, p.y, screenSpan, screenSpan);
+
+      if (tile && tile.image) {
+        ctx.drawImage(tile.image, p.x, p.y, screenSpan, screenSpan);
+      } else {
+        drawFallbackFromAncestor(zoom, t.x, t.y, p.x, p.y, screenSpan, screenSpan);
+      }
     }
+
+    for (const overlay of pendingOverlays.values()) {
+      drawOverlay(overlay);
+    }
+    drawOverlay(activeOverlay);
   }
 
   function pruneTileCache() {
@@ -165,9 +238,9 @@
     const nowBounds = getVisibleBounds(zoom);
 
     for (const [key, tile] of tileStore.entries()) {
-      const keepZoom = Math.abs(tile.z - zoom) <= 1;
-      const keepX = tile.x >= nowBounds.minX - 2 && tile.x <= nowBounds.maxX + 2;
-      const keepY = tile.y >= nowBounds.minY - 2 && tile.y <= nowBounds.maxY + 2;
+      const keepZoom = Math.abs(tile.z - zoom) <= 2;
+      const keepX = tile.x >= nowBounds.minX - 3 && tile.x <= nowBounds.maxX + 3;
+      const keepY = tile.y >= nowBounds.minY - 3 && tile.y <= nowBounds.maxY + 3;
 
       if (!(keepZoom && keepX && keepY)) {
         tileStore.delete(key);
@@ -312,22 +385,39 @@
     }, TILE_REQUEST_DEBOUNCE_MS);
   }
 
-  function flushStrokeBuffer() {
-    if (!wsOpen || strokeBuffer.length < 2) return;
+  function finalizeActiveStroke() {
+    if (!activeOverlay) return;
 
-    const points = strokeBuffer.slice();
-    strokeBuffer = [strokeBuffer[strokeBuffer.length - 1]];
+    const points = activeOverlay.points.slice();
+    const overlay = activeOverlay;
+    activeOverlay = null;
+    isDrawing = false;
+
+    if (points.length < 2) {
+      queueRender();
+      return;
+    }
 
     requestSeq += 1;
+    const requestId = `stroke-${requestSeq}`;
+    const pending = {
+      ...overlay,
+      points,
+      requestId,
+    };
+    pendingOverlays.set(requestId, pending);
+
     sendWs({
       type: "stroke",
-      request_id: `stroke-${requestSeq}`,
-      tool,
-      color,
-      size,
-      z: zoom,
-      points,
+      request_id: requestId,
+      tool: pending.tool,
+      color: pending.color,
+      size: pending.size,
+      z: pending.z,
+      points: pending.points,
     });
+
+    queueRender();
   }
 
   function connectWs() {
@@ -371,7 +461,22 @@
         }
       }
 
-      if (msg.type === "stroke_result" || msg.type === "tiles_changed") {
+      if (msg.type === "stroke_result") {
+        markInvalidated(msg.invalidated || []);
+
+        const requestId = msg.request_id;
+        if (requestId && pendingOverlays.has(requestId)) {
+          pendingOverlays.delete(requestId);
+          scheduleTileRequest(true, true);
+          queueRender();
+        } else {
+          for (const tile of msg.updated || []) {
+            installTile(tile);
+          }
+        }
+      }
+
+      if (msg.type === "tiles_changed") {
         for (const tile of msg.updated || []) {
           installTile(tile);
         }
@@ -417,11 +522,16 @@
 
     if (event.button !== 0) return;
 
+    const world = screenToWorld(event.clientX, event.clientY);
     isDrawing = true;
-    strokeBuffer = [screenToWorld(event.clientX, event.clientY)];
-    if (!strokeFlushTimer) {
-      strokeFlushTimer = setInterval(flushStrokeBuffer, STROKE_FLUSH_MS);
-    }
+    activeOverlay = {
+      tool,
+      color,
+      size,
+      z: zoom,
+      points: [world],
+    };
+    queueRender();
   });
 
   canvas.addEventListener("mousemove", (event) => {
@@ -448,9 +558,9 @@
       return;
     }
 
-    if (!isDrawing || strokeBuffer.length === 0) return;
+    if (!isDrawing || !activeOverlay) return;
 
-    const last = strokeBuffer[strokeBuffer.length - 1];
+    const last = activeOverlay.points[activeOverlay.points.length - 1];
     const minWorldStep = MIN_STROKE_STEP_PX / scaleForZoom(zoom);
     const dx = world.x - last.x;
     const dy = world.y - last.y;
@@ -458,22 +568,17 @@
       return;
     }
 
-    strokeBuffer.push(world);
+    activeOverlay.points.push(world);
+    queueRender();
   });
 
   function stopInteractions() {
     if (isDrawing) {
-      flushStrokeBuffer();
+      finalizeActiveStroke();
     }
-    isDrawing = false;
+
     isPanning = false;
     panStart = null;
-    strokeBuffer = [];
-
-    if (strokeFlushTimer) {
-      clearInterval(strokeFlushTimer);
-      strokeFlushTimer = null;
-    }
   }
 
   canvas.addEventListener("mouseup", stopInteractions);
