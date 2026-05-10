@@ -81,6 +81,12 @@ def create_app() -> Flask:
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
+    @app.route("/clear", methods=["POST"])
+    def clear_drawings() -> Response:
+        tile_engine.clear_tiles()
+        broadcast({"type": "tiles_cleared"})
+        return jsonify({"ok": True})
+
     @sock.route("/ws")
     def ws_handler(ws):
         client_id = str(uuid.uuid4())
