@@ -98,6 +98,10 @@ class TileEngine:
         image.save(path, format="PNG")
         return int(time.time() * 1000)
 
+    def _tile_exists(self, z: int, x: int, y: int) -> bool:
+        path = self._tile_path(z, x, y, ensure_dir=False)
+        return os.path.exists(path)
+
     def clear_tiles(self) -> None:
         with self._lock:
             for root, _, files in os.walk(self.tile_root, topdown=False):
@@ -202,13 +206,13 @@ class TileEngine:
             return {"updated": [], "invalidated": []}
 
         touched: Set[TileCoord] = set()
+        descendant_touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
         color = self._parse_color(color_hex, 255)
         erase_strength = 255
 
         with self._lock:
-            # Only update the drawn zoom level and ancestors (levels below)
-            # Descendants inherit on demand - don't materialize them
+            # Update the drawn level and all ancestors immediately.
             for level in range(0, z + 1):
                 if level == z:
                     level_size = size
@@ -251,6 +255,50 @@ class TileEngine:
                             )
                             touched.add(coord)
 
+            # Existing descendants must also receive the propagated edit so
+            # zooming back in does not reveal stale or blank child content.
+            max_level = min(self.max_zoom, z + self.max_descendant_depth)
+            for level in range(z + 1, max_level + 1):
+                level_scale = 2 ** (level - z)
+                level_size = max(1.0, size * level_scale)
+                radius_px = level_size / 2.0
+                span = self.tile_world_span(level)
+
+                for wx, wy in sampled_points:
+                    min_tx = math.floor((wx - world_radius) / span)
+                    max_tx = math.floor((wx + world_radius) / span)
+                    min_ty = math.floor((wy - world_radius) / span)
+                    max_ty = math.floor((wy + world_radius) / span)
+
+                    for tx in range(min_tx, max_tx + 1):
+                        for ty in range(min_ty, max_ty + 1):
+                            coord = TileCoord(level, tx, ty)
+                            descendant_touched.add(coord)
+
+                            if not self._tile_exists(level, tx, ty):
+                                continue
+
+                            local_world_x = wx - (tx * span)
+                            local_world_y = wy - (ty * span)
+                            px = (local_world_x / span) * self.tile_size
+                            py = (local_world_y / span) * self.tile_size
+
+                            if coord not in tile_cache:
+                                tile_cache[coord] = self._load_existing_tile(level, tx, ty)
+                                if tile_cache[coord] is None:
+                                    tile_cache[coord] = self._build_tile_from_ancestors(level, tx, ty)
+
+                            self._draw_brush(
+                                tile_cache[coord],
+                                px,
+                                py,
+                                radius_px,
+                                tool,
+                                color,
+                                erase_strength,
+                            )
+                            touched.add(coord)
+
             now_ms = int(time.time() * 1000)
             updates: List[Tuple[int, int, int, int]] = []
             for coord in touched:
@@ -268,12 +316,27 @@ class TileEngine:
                     "y": row["y"],
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
+                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?v={row['version']}&t={row['updated_ms']}",
                 }
             )
 
         edited_level = [u for u in result_updates if u["z"] == z]
-        invalidated = [u for u in result_updates if u["z"] > z]
+        invalidated = []
+        updated_descendants = {(u["z"], u["x"], u["y"]) for u in result_updates if u["z"] > z}
+        for coord in sorted(descendant_touched, key=lambda item: (item.z, item.x, item.y)):
+            if (coord.z, coord.x, coord.y) in updated_descendants:
+                continue
+            invalidated.append(
+                {
+                    "z": coord.z,
+                    "x": coord.x,
+                    "y": coord.y,
+                    "mtime": now_ms,
+                    "version": 0,
+                    "url": f"/tile/{coord.z}/{coord.x}/{coord.y}.png?v=0&t={now_ms}",
+                }
+            )
+        invalidated.extend(u for u in result_updates if u["z"] > z)
         return {"updated": edited_level, "invalidated": invalidated}
 
     def apply_fill(self, payload: Dict) -> Dict:
@@ -376,7 +439,7 @@ class TileEngine:
                     "y": row["y"],
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
+                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?v={row['version']}&t={row['updated_ms']}",
                 }
             )
 
@@ -569,7 +632,10 @@ class TileEngine:
         z = max(0, min(self.max_zoom, int(z)))
         coords = [(int(item["x"]), int(item["y"])) for item in requested]
         known = {
-            (int(item["x"]), int(item["y"])): int(item.get("known_mtime") or 0)
+            (int(item["x"]), int(item["y"])): (
+                int(item.get("known_mtime") or 0),
+                int(item.get("known_version") or 0),
+            )
             for item in requested
         }
 
@@ -580,7 +646,8 @@ class TileEngine:
             row = meta.get((x, y))
             if not row:
                 continue
-            if row["updated_ms"] == known.get((x, y), 0):
+            known_mtime, known_version = known.get((x, y), (0, 0))
+            if row["updated_ms"] == known_mtime and row["version"] == known_version:
                 continue
             changed.append(
                 {
@@ -589,7 +656,7 @@ class TileEngine:
                     "y": y,
                     "mtime": row["updated_ms"],
                     "version": row["version"],
-                    "url": f"/tile/{z}/{x}/{y}.png?t={row['updated_ms']}",
+                    "url": f"/tile/{z}/{x}/{y}.png?v={row['version']}&t={row['updated_ms']}",
                 }
             )
         return changed
