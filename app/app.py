@@ -147,6 +147,24 @@ def create_app() -> Flask:
                         except_id=client_id,
                     )
 
+                elif message_type == "fill":
+                    result = tile_engine.apply_fill(payload)
+                    response = {
+                        "type": "fill_result",
+                        "request_id": payload.get("request_id"),
+                        "updated": result["updated"],
+                        "invalidated": result["invalidated"],
+                    }
+                    ws.send(json.dumps(response))
+                    broadcast(
+                        {
+                            "type": "tiles_changed",
+                            "updated": result["updated"],
+                            "invalidated": result["invalidated"],
+                        },
+                        except_id=client_id,
+                    )
+
                 elif message_type == "request_tiles":
                     z = int(payload.get("z", 0))
                     requested = payload.get("tiles", [])

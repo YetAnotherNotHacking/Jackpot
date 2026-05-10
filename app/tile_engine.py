@@ -272,6 +272,183 @@ class TileEngine:
         invalidated = [u for u in result_updates if u["z"] > z]
         return {"updated": edited_level, "invalidated": invalidated}
 
+    def apply_fill(self, payload: Dict) -> Dict:
+        z = int(payload.get("z", 0))
+        z = max(0, min(self.max_zoom, z))
+        wx = float(payload.get("x", 0.0))
+        wy = float(payload.get("y", 0.0))
+        color_hex = payload.get("color", "#111111")
+
+        span = self.tile_world_span(z)
+        tx = math.floor(wx / span)
+        ty = math.floor(wy / span)
+        local_world_x = wx - (tx * span)
+        local_world_y = wy - (ty * span)
+        px = int((local_world_x / span) * self.tile_size)
+        py = int((local_world_y / span) * self.tile_size)
+
+        # Get the target color at the clicked position
+        target_tile = self._load_or_create(z, tx, ty)
+        target_color = None
+        
+        if px >= 0 and px < self.tile_size and py >= 0 and py < self.tile_size:
+            target_color = target_tile.getpixel((px, py))
+        else:
+            # Clicked outside tile bounds
+            return {"updated": [], "invalidated": []}
+
+        # Skip if already the target color
+        fill_color = self._parse_color(color_hex, 255)
+        if target_color[:3] == fill_color[:3]:  # Compare RGB, ignore alpha
+            return {"updated": [], "invalidated": []}
+
+        touched: Set[TileCoord] = set()
+        tile_cache: Dict[TileCoord, Image.Image] = {}
+
+        with self._lock:
+            # Perform flood fill starting from the clicked tile
+            fill_queue = [(z, tx, ty, px, py)]
+            visited_tiles = set()
+            
+            while fill_queue:
+                current_z, current_tx, current_ty, current_px, current_py = fill_queue.pop(0)
+                tile_key = (current_z, current_tx, current_ty)
+                
+                if tile_key in visited_tiles:
+                    continue
+                visited_tiles.add(tile_key)
+                
+                coord = TileCoord(current_z, current_tx, current_ty)
+                if coord not in tile_cache:
+                    tile_cache[coord] = self._load_or_create(current_z, current_tx, current_ty)
+                
+                # Perform flood fill on this tile and get boundary pixels
+                boundary_pixels = self._flood_fill_tile(
+                    tile_cache[coord], 
+                    current_px, 
+                    current_py, 
+                    target_color, 
+                    fill_color
+                )
+                
+                if boundary_pixels:
+                    touched.add(coord)
+                    
+                    # Check neighboring tiles for pixels that match the target color
+                    span_current = self.tile_world_span(current_z)
+                    
+                    # Check all boundary pixels for potential spread to adjacent tiles
+                    for bx, by in boundary_pixels:
+                        # Convert pixel coordinates back to world coordinates
+                        local_wx = (bx / self.tile_size) * span_current
+                        local_wy = (by / self.tile_size) * span_current
+                        world_x = current_tx * span_current + local_wx
+                        world_y = current_ty * span_current + local_wy
+                        
+                        # Check adjacent tiles
+                        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                            adj_tx = current_tx + dx
+                            adj_ty = current_ty + dy
+                            
+                            # Calculate pixel position in adjacent tile
+                            adj_local_x = world_x - (adj_tx * span_current)
+                            adj_local_y = world_y - (adj_ty * span_current)
+                            adj_px = int((adj_local_x / span_current) * self.tile_size)
+                            adj_py = int((adj_local_y / span_current) * self.tile_size)
+                            
+                            # Check bounds
+                            if (adj_px >= 0 and adj_px < self.tile_size and 
+                                adj_py >= 0 and adj_py < self.tile_size):
+                                
+                                adj_coord = TileCoord(current_z, adj_tx, adj_ty)
+                                if adj_coord not in tile_cache:
+                                    tile_cache[adj_coord] = self._load_or_create(current_z, adj_tx, adj_ty)
+                                
+                                # Check if adjacent pixel matches target color
+                                try:
+                                    adj_pixel = tile_cache[adj_coord].getpixel((adj_px, adj_py))
+                                    if adj_pixel[:3] == target_color[:3]:
+                                        fill_queue.append((current_z, adj_tx, adj_ty, adj_px, adj_py))
+                                except (IndexError, OSError):
+                                    pass
+
+            now_ms = int(time.time() * 1000)
+            updates: List[Tuple[int, int, int, int]] = []
+            for coord in touched:
+                mtime = self._save_tile(coord.z, coord.x, coord.y, tile_cache[coord])
+                updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
+
+            rows = self.repo.upsert_tiles(updates)
+
+        result_updates = []
+        for row in rows:
+            result_updates.append(
+                {
+                    "z": row["z"],
+                    "x": row["x"],
+                    "y": row["y"],
+                    "mtime": row["updated_ms"],
+                    "version": row["version"],
+                    "url": f"/tile/{row['z']}/{row['x']}/{row['y']}.png?t={row['updated_ms']}",
+                }
+            )
+
+        edited_level = [u for u in result_updates if u["z"] == z]
+        invalidated = [u for u in result_updates if u["z"] > z]
+        return {"updated": edited_level, "invalidated": invalidated}
+
+    def _flood_fill_tile(
+        self, 
+        image: Image.Image, 
+        start_x: int, 
+        start_y: int, 
+        target_color: Tuple[int, int, int, int], 
+        fill_color: Tuple[int, int, int, int]
+    ) -> List[Tuple[int, int]]:
+        """Perform flood fill on a single tile. Returns list of boundary pixels that touch tile edges."""
+        if start_x < 0 or start_x >= self.tile_size or start_y < 0 or start_y >= self.tile_size:
+            return []
+
+        # Check if start pixel matches target color
+        start_pixel = image.getpixel((start_x, start_y))
+        if start_pixel[:3] != target_color[:3]:  # Compare RGB only
+            return []
+
+        # Use a stack-based flood fill algorithm
+        stack = [(start_x, start_y)]
+        visited = set()
+        boundary_pixels = []
+
+        while stack:
+            x, y = stack.pop()
+            if (x, y) in visited:
+                continue
+            visited.add((x, y))
+
+            if x < 0 or x >= self.tile_size or y < 0 or y >= self.tile_size:
+                continue
+
+            pixel = image.getpixel((x, y))
+            if pixel[:3] != target_color[:3]:
+                continue
+
+            # Fill this pixel
+            image.putpixel((x, y), fill_color)
+
+            # Check if this is a boundary pixel (touches tile edge)
+            if x == 0 or x == self.tile_size - 1 or y == 0 or y == self.tile_size - 1:
+                boundary_pixels.append((x, y))
+
+            # Add neighbors
+            stack.extend([
+                (x + 1, y),
+                (x - 1, y), 
+                (x, y + 1),
+                (x, y - 1)
+            ])
+
+        return boundary_pixels
+
     def diff_visible_tiles(self, z: int, requested: List[Dict]) -> List[Dict]:
         z = max(0, min(self.max_zoom, int(z)))
         coords = [(int(item["x"]), int(item["y"])) for item in requested]

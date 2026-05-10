@@ -13,6 +13,7 @@
 
   const penTool = document.getElementById("penTool");
   const eraserTool = document.getElementById("eraserTool");
+  const fillTool = document.getElementById("fillTool");
   const lineTool = document.getElementById("lineTool");
   const squareTool = document.getElementById("squareTool");
   const clearButton = document.getElementById("clearButton");
@@ -523,6 +524,15 @@
         }
       }
 
+      if (msg.type === "fill_result") {
+        for (const tile of msg.updated || []) {
+          installTile(tile);
+        }
+        markInvalidated(msg.invalidated || []);
+        scheduleTileRequest(true, true);
+        queueRender();
+      }
+
       if (msg.type === "tiles_changed") {
         for (const tile of msg.updated || []) {
           installTile(tile);
@@ -540,12 +550,14 @@
     tool = newTool;
     penTool.classList.toggle("active", tool === "pen");
     eraserTool.classList.toggle("active", tool === "eraser");
+    fillTool.classList.toggle("active", tool === "fill");
     lineTool.classList.toggle("active", tool === "line");
     squareTool.classList.toggle("active", tool === "square");
   }
 
   penTool.addEventListener("click", () => setTool("pen"));
   eraserTool.addEventListener("click", () => setTool("eraser"));
+  fillTool.addEventListener("click", () => setTool("fill"));
   lineTool.addEventListener("click", () => setTool("line"));
   squareTool.addEventListener("click", () => setTool("square"));
 
@@ -575,6 +587,22 @@
     if (event.button !== 0) return;
 
     const world = screenToWorld(event.clientX, event.clientY);
+
+    if (tool === "fill") {
+      // Handle fill as a single click
+      requestSeq += 1;
+      const requestId = `fill-${requestSeq}`;
+      sendWs({
+        type: "fill",
+        request_id: requestId,
+        color: color,
+        z: Math.floor(zoom),
+        x: world.x,
+        y: world.y,
+      });
+      return;
+    }
+
     isDrawing = true;
     activeOverlay = {
       tool,
