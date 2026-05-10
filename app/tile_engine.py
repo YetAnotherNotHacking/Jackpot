@@ -190,23 +190,21 @@ class TileEngine:
 
         touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
-        max_level = min(self.max_zoom, z + self.max_descendant_depth)
-        min_level = 0
+        color = self._parse_color(color_hex, 255)
+        erase_strength = 255
 
         with self._lock:
-            for level in range(min_level, max_level + 1):
-                if level >= z:
-                    level_scale = 2 ** (level - z)
-                    level_size = max(1.0, size * level_scale)
+            # Only update the drawn zoom level and ancestors (levels below)
+            # Descendants inherit on demand - don't materialize them
+            for level in range(0, z + 1):
+                if level == z:
+                    level_size = size
                 else:
                     level_scale = 2 ** (z - level)
                     level_size = max(1.0, size / level_scale)
 
                 radius_px = level_size / 2.0
-                color = self._parse_color(color_hex, 255)
-                erase_strength = 255
                 span = self.tile_world_span(level)
-
                 for wx, wy in sampled_points:
                     min_tx = math.floor((wx - world_radius) / span)
                     max_tx = math.floor((wx + world_radius) / span)
@@ -222,16 +220,9 @@ class TileEngine:
 
                             coord = TileCoord(level, tx, ty)
                             if coord not in tile_cache:
-                                if level > z:
-                                    path = self._tile_path(level, tx, ty, ensure_dir=False)
-                                    if not os.path.exists(path):
-                                        # Skip materializing descendants that do not exist yet.
-                                        # They will inherit the antialiased stroke from ancestors when requested.
-                                        continue
-
                                 # Erasing should start from a rebuilt ancestor state
                                 # so deep descendant tiles correctly inherit transparency.
-                                if tool == "eraser" and level > z:
+                                if tool == "eraser":
                                     tile_cache[coord] = self._build_tile_from_ancestors(level, tx, ty)
                                 else:
                                     tile_cache[coord] = self._load_or_create(level, tx, ty)
@@ -279,85 +270,81 @@ class TileEngine:
         wy = float(payload.get("y", 0.0))
         color_hex = payload.get("color", "#111111")
 
-        # Get the target color at the clicked zoom level
-        span_z = self.tile_world_span(z)
-        tx_z = math.floor(wx / span_z)
-        ty_z = math.floor(wy / span_z)
-        local_world_x = wx - (tx_z * span_z)
-        local_world_y = wy - (ty_z * span_z)
-        px_z = int((local_world_x / span_z) * self.tile_size)
-        py_z = int((local_world_y / span_z) * self.tile_size)
-
-        target_tile = self._load_or_create(z, tx_z, ty_z)
-        target_color = None
-        
-        if px_z >= 0 and px_z < self.tile_size and py_z >= 0 and py_z < self.tile_size:
-            target_color = target_tile.getpixel((px_z, py_z))
-        else:
-            # Clicked outside tile bounds
-            return {"updated": [], "invalidated": []}
-
-        # Skip if already the target color
         fill_color = self._parse_color(color_hex, 255)
-        if target_color[:3] == fill_color[:3]:  # Compare RGB, ignore alpha
-            return {"updated": [], "invalidated": []}
-
         touched: Set[TileCoord] = set()
         tile_cache: Dict[TileCoord, Image.Image] = {}
-        max_level = min(self.max_zoom, z + self.max_descendant_depth)
-        min_level = 0
 
         with self._lock:
-            # Process all zoom levels like the stroke method does
-            for level in range(min_level, max_level + 1):
+            # Step 1: Get target color at the clicked position at zoom z
+            span_z = self.tile_world_span(z)
+            tx_z = math.floor(wx / span_z)
+            ty_z = math.floor(wy / span_z)
+            local_world_x = wx - (tx_z * span_z)
+            local_world_y = wy - (ty_z * span_z)
+            px_z = int((local_world_x / span_z) * self.tile_size)
+            py_z = int((local_world_y / span_z) * self.tile_size)
+
+            target_tile = self._load_or_create(z, tx_z, ty_z)
+            if px_z < 0 or px_z >= self.tile_size or py_z < 0 or py_z >= self.tile_size:
+                return {"updated": [], "invalidated": []}
+
+            target_color = target_tile.getpixel((px_z, py_z))
+            
+            # Skip if already the target color
+            if target_color[:3] == fill_color[:3]:
+                return {"updated": [], "invalidated": []}
+
+            # Step 2: Apply fill at all levels from 0 to z (ancestors and clicked level)
+            # This matches how the stroke tool works
+            for level in range(0, z + 1):
                 if level == z:
-                    # At the clicked zoom level, use the exact clicked position
+                    # At clicked level, use exact coordinates
+                    level_span = span_z
                     level_tx = tx_z
                     level_ty = ty_z
                     level_px = px_z
                     level_py = py_z
                     level_target_color = target_color
-                elif level > z:
-                    # Higher zoom level - need to find corresponding tile and pixel
-                    level_scale = 2 ** (level - z)
-                    level_tx = tx_z * level_scale
-                    level_ty = ty_z * level_scale
-                    # The clicked pixel position needs to be scaled
-                    level_px = px_z * level_scale
-                    level_py = py_z * level_scale
-                    level_target_color = target_color  # Same color at higher zoom
                 else:
-                    # Lower zoom level - coarser resolution
+                    # At ancestor levels, scale down coordinates
                     level_scale = 2 ** (z - level)
-                    level_tx = math.floor(tx_z / level_scale)
-                    level_ty = math.floor(ty_z / level_scale)
-                    level_px = math.floor(px_z / level_scale)
-                    level_py = math.floor(py_z / level_scale)
-                    # For lower zoom levels, we need to check what color is there
-                    # This is more complex - we'll use the target color for now
-                    level_target_color = target_color
+                    level_span = self.tile_world_span(level)
+                    level_tx = math.floor(wx / level_span)
+                    level_ty = math.floor(wy / level_span)
+                    level_local_x = wx - (level_tx * level_span)
+                    level_local_y = wy - (level_ty * level_span)
+                    level_px = int((level_local_x / level_span) * self.tile_size)
+                    level_py = int((level_local_y / level_span) * self.tile_size)
+                    
+                    # Get target color at this level
+                    level_coord = TileCoord(level, level_tx, level_ty)
+                    if level_coord not in tile_cache:
+                        tile_cache[level_coord] = self._load_or_create(level, level_tx, level_ty)
+                    level_tile = tile_cache[level_coord]
+                    
+                    if (level_px < 0 or level_px >= self.tile_size or 
+                        level_py < 0 or level_py >= self.tile_size):
+                        continue
+                    
+                    level_target_color = level_tile.getpixel((level_px, level_py))
 
-                coord = TileCoord(level, level_tx, level_ty)
-                if coord not in tile_cache:
-                    if level > z:
-                        path = self._tile_path(level, level_tx, level_ty, ensure_dir=False)
-                        if not os.path.exists(path):
-                            continue
-                        tile_cache[coord] = self._load_existing_tile(level, level_tx, level_ty)
-                        if tile_cache[coord] is None:
-                            continue
-                    else:
-                        tile_cache[coord] = self._load_or_create(level, level_tx, level_ty)
+                # Skip if already the target color at this level
+                if level_target_color[:3] == fill_color[:3]:
+                    continue
 
-                # Perform flood fill on this tile
-                if self._flood_fill_tile_simple(
-                    tile_cache[coord], 
-                    level_px, 
-                    level_py, 
-                    level_target_color, 
-                    fill_color
-                ):
-                    touched.add(coord)
+                # Flood fill at this level across potentially multiple tiles
+                filled_tiles = self._flood_fill_across_tiles(
+                    level,
+                    level_tx,
+                    level_ty,
+                    level_px,
+                    level_py,
+                    level_target_color,
+                    fill_color,
+                    tile_cache
+                )
+                
+                touched.update(TileCoord(level, tx, ty) for tx, ty, _, _ in filled_tiles)
 
             now_ms = int(time.time() * 1000)
             updates: List[Tuple[int, int, int, int]] = []
@@ -432,6 +419,138 @@ class TileEngine:
             ])
 
         return changed
+
+    def _flood_fill_and_track(
+        self,
+        image: Image.Image,
+        start_x: int,
+        start_y: int,
+        target_color: Tuple[int, int, int, int],
+        fill_color: Tuple[int, int, int, int]
+    ) -> Set[Tuple[int, int]]:
+        """Perform flood fill and return set of all filled pixel coordinates."""
+        if start_x < 0 or start_x >= self.tile_size or start_y < 0 or start_y >= self.tile_size:
+            return set()
+
+        # Check if start pixel matches target color
+        start_pixel = image.getpixel((start_x, start_y))
+        if start_pixel[:3] != target_color[:3]:  # Compare RGB only
+            return set()
+
+        # Use a stack-based flood fill algorithm
+        stack = [(start_x, start_y)]
+        visited = set()
+        filled = set()
+
+        while stack:
+            x, y = stack.pop()
+            if (x, y) in visited:
+                continue
+            visited.add((x, y))
+
+            if x < 0 or x >= self.tile_size or y < 0 or y >= self.tile_size:
+                continue
+
+            pixel = image.getpixel((x, y))
+            if pixel[:3] != target_color[:3]:
+                continue
+
+            # Fill this pixel
+            image.putpixel((x, y), fill_color)
+            filled.add((x, y))
+
+            # Add neighbors
+            stack.extend([
+                (x + 1, y),
+                (x - 1, y), 
+                (x, y + 1),
+                (x, y - 1)
+            ])
+
+        return filled
+
+    def _flood_fill_across_tiles(
+        self,
+        z: int,
+        start_tx: int,
+        start_ty: int,
+        start_px: int,
+        start_py: int,
+        target_color: Tuple[int, int, int, int],
+        fill_color: Tuple[int, int, int, int],
+        tile_cache: Dict
+    ) -> Set[Tuple[int, int, int, int]]:
+        """Flood fill that can span across multiple tiles at the same zoom level.
+        Returns set of (tx, ty, px, py) of all filled pixels."""
+        span = self.tile_world_span(z)
+        
+        # Use a queue to process pixels, tracking which tile they're in
+        # Queue contains: (tile_x, tile_y, pixel_x, pixel_y)
+        queue = [(start_tx, start_ty, start_px, start_py)]
+        visited = set()
+        filled_pixels = set()
+
+        while queue:
+            tx, ty, px, py = queue.pop(0)
+            
+            if (tx, ty, px, py) in visited:
+                continue
+            visited.add((tx, ty, px, py))
+
+            # Load tile if not in cache
+            coord = TileCoord(z, tx, ty)
+            if coord not in tile_cache:
+                tile_cache[coord] = self._load_or_create(z, tx, ty)
+            
+            tile = tile_cache[coord]
+            
+            # Check bounds within tile
+            if px < 0 or px >= self.tile_size or py < 0 or py >= self.tile_size:
+                continue
+            
+            # Get pixel color
+            try:
+                pixel = tile.getpixel((px, py))
+            except (IndexError, OSError):
+                continue
+            
+            # Check if matches target color
+            if pixel[:3] != target_color[:3]:
+                continue
+            
+            # Fill the pixel
+            tile.putpixel((px, py), fill_color)
+            filled_pixels.add((tx, ty, px, py))
+            
+            # Add neighbors (may cross tile boundaries)
+            neighbors = [
+                (tx, ty, px + 1, py),
+                (tx, ty, px - 1, py),
+                (tx, ty, px, py + 1),
+                (tx, ty, px, py - 1)
+            ]
+            
+            # Check if neighbors cross tile boundaries
+            for nx, ny, npx, npy in neighbors:
+                # Handle tile wrapping at boundaries
+                if npx >= self.tile_size:
+                    nx += 1
+                    npx -= self.tile_size
+                elif npx < 0:
+                    nx -= 1
+                    npx += self.tile_size
+                
+                if npy >= self.tile_size:
+                    ny += 1
+                    npy -= self.tile_size
+                elif npy < 0:
+                    ny -= 1
+                    npy += self.tile_size
+                
+                if (nx, ny, npx, npy) not in visited:
+                    queue.append((nx, ny, npx, npy))
+        
+        return filled_pixels
 
     def diff_visible_tiles(self, z: int, requested: List[Dict]) -> List[Dict]:
         z = max(0, min(self.max_zoom, int(z)))
