@@ -10,12 +10,14 @@
 <body>
   <div class="layout">
     <aside class="toolbar">
-      <div class="brand">{{ app_name }}</div>
+      <img src="static/images/acedraw.png" alt="Ace Draw Logo" class="brand-logo">
 
       <div class="tool-group">
         <label class="tool-label">Tool</label>
-        <button id="penTool" class="tool-btn active">Pen</button>
-        <button id="eraserTool" class="tool-btn">Eraser</button>
+        <button id="penTool" class="tool-btn active"><img src="static/images/pencil.png" alt="" class="tool-icon"> Pen</button>
+        <button id="eraserTool" class="tool-btn"><img src="static/images/eraser.png" alt="" class="tool-icon"> Eraser</button>
+        <button id="lineTool" class="tool-btn"><img src="static/images/line.png" alt="" class="tool-icon"> Line</button>
+        <button id="squareTool" class="tool-btn"><img src="static/images/square.png" alt="" class="tool-icon"> Square</button>
       </div>
 
       <div class="tool-group">
@@ -34,8 +36,6 @@
         <input id="zoomLevel" type="range" min="0" max="{{ max_zoom }}" value="2" step="0.1">
         <div id="zoomLabel" class="value-label">Layer 2.0</div>
       </div>
-
-      <img src="static/images/as.png" alt="Ace of Spades">
 
       <div class="tool-group">
         <button id="clearButton" class="tool-btn clear">Clear All</button>
