@@ -21,7 +21,7 @@
   const zoomLabel = document.getElementById("zoomLabel");
 
   let tool = "pen";
-  let zoom = parseInt(zoomSlider.value, 10);
+  let zoom = parseFloat(zoomSlider.value);
   let color = penColor.value;
   let size = parseInt(brushSize.value, 10);
 
@@ -102,7 +102,8 @@
   function getVisibleBounds(z) {
     const rect = canvas.getBoundingClientRect();
     const scale = scaleForZoom(z);
-    const span = tileWorldSpan(z);
+    const tileZ = Math.floor(z);
+    const span = tileWorldSpan(tileZ);
 
     const minWorldX = camera.x + (0 - rect.width / 2) / scale;
     const maxWorldX = camera.x + (rect.width - rect.width / 2) / scale;
@@ -130,9 +131,10 @@
 
   function hasDirtyVisibleTiles() {
     const b = getVisibleBounds(zoom);
+    const tileZ = Math.floor(zoom);
     for (let x = b.minX; x <= b.maxX; x += 1) {
       for (let y = b.minY; y <= b.maxY; y += 1) {
-        if (dirtyKeys.has(keyFor(zoom, x, y))) {
+        if (dirtyKeys.has(keyFor(tileZ, x, y))) {
           return true;
         }
       }
@@ -163,7 +165,7 @@
   }
 
   function drawOverlay(overlay) {
-    if (!overlay || overlay.z !== zoom || overlay.points.length === 0) {
+    if (!overlay || Math.floor(overlay.z) !== Math.floor(zoom) || overlay.points.length === 0) {
       return;
     }
 
@@ -211,12 +213,13 @@
     const rect = canvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
 
+    const tileZ = Math.floor(zoom);
     const tiles = visibleTiles(zoom);
-    const screenSpan = tileWorldSpan(zoom) * scaleForZoom(zoom);
+    const screenSpan = tileWorldSpan(tileZ) * scaleForZoom(zoom);
     for (const t of tiles) {
-      const key = keyFor(zoom, t.x, t.y);
+      const key = keyFor(tileZ, t.x, t.y);
       const tile = tileStore.get(key);
-      const span = tileWorldSpan(zoom);
+      const span = tileWorldSpan(tileZ);
       const worldX = t.x * span;
       const worldY = t.y * span;
       const p = worldToScreen(worldX, worldY);
@@ -224,7 +227,7 @@
       if (tile && tile.image) {
         ctx.drawImage(tile.image, p.x, p.y, screenSpan, screenSpan);
       } else {
-        drawFallbackFromAncestor(zoom, t.x, t.y, p.x, p.y, screenSpan, screenSpan);
+        drawFallbackFromAncestor(tileZ, t.x, t.y, p.x, p.y, screenSpan, screenSpan);
       }
     }
 
@@ -239,7 +242,7 @@
     const nowBounds = getVisibleBounds(zoom);
 
     for (const [key, tile] of tileStore.entries()) {
-      const keepZoom = Math.abs(tile.z - zoom) <= 2;
+      const keepZoom = Math.abs(tile.z - Math.floor(zoom)) <= 2;
       const keepX = tile.x >= nowBounds.minX - 3 && tile.x <= nowBounds.maxX + 3;
       const keepY = tile.y >= nowBounds.minY - 3 && tile.y <= nowBounds.maxY + 3;
 
@@ -319,7 +322,7 @@
       }
 
       if (
-        tile.z === zoom &&
+        tile.z === Math.floor(zoom) &&
         tile.x >= b.minX &&
         tile.x <= b.maxX &&
         tile.y >= b.minY &&
@@ -343,7 +346,8 @@
     if (!wsOpen || pendingTileRequest) return;
 
     const b = getVisibleBounds(zoom);
-    const signature = `${zoom}:${b.minX}:${b.maxX}:${b.minY}:${b.maxY}`;
+    const tileZ = Math.floor(zoom);
+    const signature = `${tileZ}:${b.minX}:${b.maxX}:${b.minY}:${b.maxY}`;
     if (!force && signature === lastViewportSignature && !hasDirtyVisibleTiles()) {
       return;
     }
@@ -351,7 +355,7 @@
     const tiles = [];
     for (let x = b.minX; x <= b.maxX; x += 1) {
       for (let y = b.minY; y <= b.maxY; y += 1) {
-        const k = keyFor(zoom, x, y);
+        const k = keyFor(tileZ, x, y);
         const existing = tileStore.get(k);
         const knownMtime = dirtyKeys.has(k) ? 0 : (existing ? existing.mtime : 0);
         const knownVersion = dirtyKeys.has(k) ? 0 : (existing ? existing.version || 0 : 0);
@@ -365,7 +369,7 @@
     sendWs({
       type: "request_tiles",
       request_id: `tiles-${requestSeq}`,
-      z: zoom,
+      z: tileZ,
       tiles,
     });
   }
@@ -524,8 +528,8 @@
   });
 
   zoomSlider.addEventListener("input", () => {
-    zoom = parseInt(zoomSlider.value, 10);
-    zoomLabel.textContent = `Layer ${zoom}`;
+    zoom = parseFloat(zoomSlider.value);
+    zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;
     queueRender();
     scheduleTileRequest(true, true);
   });
@@ -545,7 +549,7 @@
       tool,
       color,
       size,
-      z: zoom,
+      z: Math.floor(zoom),
       points: [world],
     };
     queueRender();
@@ -559,7 +563,7 @@
       lastCursorSentAt = now;
       sendWs({
         type: "cursor",
-        cursor: { z: zoom, x: world.x, y: world.y },
+        cursor: { z: Math.floor(zoom), x: world.x, y: world.y },
       });
     }
 
@@ -631,13 +635,14 @@
     "wheel",
     (event) => {
       event.preventDefault();
-      const delta = event.deltaY > 0 ? -1 : 1;
+      // Adjust zoom speed
+      const delta = event.deltaY > 0 ? -0.2 : 0.2;
       const prevZoom = zoom;
       zoom = Math.max(0, Math.min(maxZoom, zoom + delta));
       if (zoom === prevZoom) return;
 
-      zoomSlider.value = String(zoom);
-      zoomLabel.textContent = `Layer ${zoom}`;
+      zoomSlider.value = zoom.toFixed(1);
+      zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;
       queueRender();
       scheduleTileRequest(true, true);
     },
