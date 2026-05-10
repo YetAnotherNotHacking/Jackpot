@@ -29,7 +29,7 @@ class TileEngine:
         self.tile_root = tile_root
         self.tile_size = tile_size
         self.max_zoom = max_zoom
-        self.max_descendant_depth = max(0, max_descendant_depth)
+        self.max_descendant_depth = max(10, max_descendant_depth)
         self.repo = repo
         self._lock = threading.RLock()
         os.makedirs(self.tile_root, exist_ok=True)
@@ -84,6 +84,22 @@ class TileEngine:
         path = self._tile_path(z, x, y)
         image.save(path, format="PNG")
         return int(time.time() * 1000)
+
+    def clear_tiles(self) -> None:
+        with self._lock:
+            for root, _, files in os.walk(self.tile_root, topdown=False):
+                for filename in files:
+                    if filename.endswith(".png"):
+                        try:
+                            os.remove(os.path.join(root, filename))
+                        except FileNotFoundError:
+                            pass
+                if root != self.tile_root and not os.listdir(root):
+                    try:
+                        os.rmdir(root)
+                    except OSError:
+                        pass
+            self.repo.clear_tiles()
 
     def _world_to_tile(self, wx: float, wy: float, z: int) -> Tuple[int, int, float, float]:
         span = self.tile_world_span(z)
@@ -206,8 +222,13 @@ class TileEngine:
 
                             coord = TileCoord(level, tx, ty)
                             if coord not in tile_cache:
-                                tile_cache[coord] = self._load_or_create(level, tx, ty)
-
+                                # Erasing should start from a rebuilt ancestor state
+                                # so deep descendant tiles correctly inherit transparency.
+                                if tool == "eraser" and level > z:
+                                    tile_cache[coord] = self._build_tile_from_ancestors(level, tx, ty)
+                                else:
+                                    tile_cache[coord] = self._load_or_create(level, tx, ty)
+                            
                             self._draw_brush(
                                 tile_cache[coord],
                                 px,

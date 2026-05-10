@@ -71,6 +71,11 @@ class TileRepository:
                 rows = cur.fetchall()
         return rows
 
+    def clear_tiles(self) -> None:
+        with self._conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM tiles")
+
     def get_tile_meta_many(
         self,
         z: int,

@@ -81,6 +81,14 @@ body {
   color: var(--white);
 }
 
+.tool-btn.clear {
+  border-color: var(--light-red);
+}
+
+.tool-btn.clear:hover {
+  background: var(--light-red);
+}
+
 .value-label {
   font-size: 0.88rem;
   color: var(--white);

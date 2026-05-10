@@ -13,6 +13,7 @@
 
   const penTool = document.getElementById("penTool");
   const eraserTool = document.getElementById("eraserTool");
+  const clearButton = document.getElementById("clearButton");
   const penColor = document.getElementById("penColor");
   const brushSize = document.getElementById("brushSize");
   const brushSizeLabel = document.getElementById("brushSizeLabel");
@@ -494,6 +495,10 @@
         }
         markInvalidated(msg.invalidated || []);
       }
+
+      if (msg.type === "tiles_cleared") {
+        clearAllTiles();
+      }
     });
   }
 
@@ -584,6 +589,16 @@
     queueRender();
   });
 
+  function clearAllTiles() {
+    tileStore.clear();
+    dirtyKeys.clear();
+    pendingOverlays.clear();
+    activeOverlay = null;
+    lastViewportSignature = "";
+    queueRender();
+    scheduleTileRequest(true, true);
+  }
+
   function stopInteractions() {
     if (isDrawing) {
       finalizeActiveStroke();
@@ -592,6 +607,21 @@
     isPanning = false;
     panStart = null;
   }
+
+  clearButton.addEventListener("click", async () => {
+    clearButton.disabled = true;
+    try {
+      const response = await fetch("/clear", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Clear failed: ${response.status}`);
+      }
+      clearAllTiles();
+    } catch (error) {
+      console.error("Unable to clear tiles", error);
+    } finally {
+      clearButton.disabled = false;
+    }
+  });
 
   canvas.addEventListener("mouseup", stopInteractions);
   canvas.addEventListener("mouseleave", stopInteractions);
