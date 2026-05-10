@@ -13,6 +13,9 @@
 
   const penTool = document.getElementById("penTool");
   const eraserTool = document.getElementById("eraserTool");
+  const lineTool = document.getElementById("lineTool");
+  const squareTool = document.getElementById("squareTool");
+  const clearButton = document.getElementById("clearButton");
   const penColor = document.getElementById("penColor");
   const brushSize = document.getElementById("brushSize");
   const brushSizeLabel = document.getElementById("brushSizeLabel");
@@ -20,7 +23,7 @@
   const zoomLabel = document.getElementById("zoomLabel");
 
   let tool = "pen";
-  let zoom = parseInt(zoomSlider.value, 10);
+  let zoom = parseFloat(zoomSlider.value);
   let color = penColor.value;
   let size = parseInt(brushSize.value, 10);
 
@@ -101,7 +104,8 @@
   function getVisibleBounds(z) {
     const rect = canvas.getBoundingClientRect();
     const scale = scaleForZoom(z);
-    const span = tileWorldSpan(z);
+    const tileZ = Math.floor(z);
+    const span = tileWorldSpan(tileZ);
 
     const minWorldX = camera.x + (0 - rect.width / 2) / scale;
     const maxWorldX = camera.x + (rect.width - rect.width / 2) / scale;
@@ -129,9 +133,10 @@
 
   function hasDirtyVisibleTiles() {
     const b = getVisibleBounds(zoom);
+    const tileZ = Math.floor(zoom);
     for (let x = b.minX; x <= b.maxX; x += 1) {
       for (let y = b.minY; y <= b.maxY; y += 1) {
-        if (dirtyKeys.has(keyFor(zoom, x, y))) {
+        if (dirtyKeys.has(keyFor(tileZ, x, y))) {
           return true;
         }
       }
@@ -162,7 +167,7 @@
   }
 
   function drawOverlay(overlay) {
-    if (!overlay || overlay.z !== zoom || overlay.points.length === 0) {
+    if (!overlay || Math.floor(overlay.z) !== Math.floor(zoom) || overlay.points.length === 0) {
       return;
     }
 
@@ -193,13 +198,27 @@
       return;
     }
 
-    const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
     ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
 
-    for (let i = 1; i < overlay.points.length; i += 1) {
-      const p = worldToScreen(overlay.points[i].x, overlay.points[i].y);
-      ctx.lineTo(p.x, p.y);
+    if (overlay.tool === "square" && overlay.points.length === 2) {
+      // Points is just [start, current] for UI overlay. 
+      // We draw it as a square here.
+      const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+      const end = worldToScreen(overlay.points[1].x, overlay.points[1].y);
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.lineTo(start.x, end.y);
+      ctx.closePath();
+    } else {
+      // Normal stroke or line tool
+      const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+      ctx.moveTo(start.x, start.y);
+
+      for (let i = 1; i < overlay.points.length; i += 1) {
+        const p = worldToScreen(overlay.points[i].x, overlay.points[i].y);
+        ctx.lineTo(p.x, p.y);
+      }
     }
 
     ctx.stroke();
@@ -210,12 +229,13 @@
     const rect = canvas.getBoundingClientRect();
     ctx.clearRect(0, 0, rect.width, rect.height);
 
+    const tileZ = Math.floor(zoom);
     const tiles = visibleTiles(zoom);
-    const screenSpan = tileWorldSpan(zoom) * scaleForZoom(zoom);
+    const screenSpan = tileWorldSpan(tileZ) * scaleForZoom(zoom);
     for (const t of tiles) {
-      const key = keyFor(zoom, t.x, t.y);
+      const key = keyFor(tileZ, t.x, t.y);
       const tile = tileStore.get(key);
-      const span = tileWorldSpan(zoom);
+      const span = tileWorldSpan(tileZ);
       const worldX = t.x * span;
       const worldY = t.y * span;
       const p = worldToScreen(worldX, worldY);
@@ -223,7 +243,7 @@
       if (tile && tile.image) {
         ctx.drawImage(tile.image, p.x, p.y, screenSpan, screenSpan);
       } else {
-        drawFallbackFromAncestor(zoom, t.x, t.y, p.x, p.y, screenSpan, screenSpan);
+        drawFallbackFromAncestor(tileZ, t.x, t.y, p.x, p.y, screenSpan, screenSpan);
       }
     }
 
@@ -238,7 +258,7 @@
     const nowBounds = getVisibleBounds(zoom);
 
     for (const [key, tile] of tileStore.entries()) {
-      const keepZoom = Math.abs(tile.z - zoom) <= 2;
+      const keepZoom = Math.abs(tile.z - Math.floor(zoom)) <= 2;
       const keepX = tile.x >= nowBounds.minX - 3 && tile.x <= nowBounds.maxX + 3;
       const keepY = tile.y >= nowBounds.minY - 3 && tile.y <= nowBounds.maxY + 3;
 
@@ -256,7 +276,12 @@
   function installTile(tile) {
     const key = keyFor(tile.z, tile.x, tile.y);
     const existing = tileStore.get(key);
-    if (existing && existing.mtime === tile.mtime && existing.image) {
+    if (
+      existing &&
+      existing.mtime === tile.mtime &&
+      existing.version === tile.version &&
+      existing.image
+    ) {
       dirtyKeys.delete(key);
       return;
     }
@@ -268,6 +293,7 @@
         x: tile.x,
         y: tile.y,
         mtime: tile.mtime,
+        version: tile.version || 0,
         image,
       });
       dirtyKeys.delete(key);
@@ -283,6 +309,10 @@
   }
 
   function markInvalidated(tiles) {
+    if (!tiles || tiles.length === 0) {
+      return;
+    }
+
     let needsVisibleRefresh = false;
     const b = getVisibleBounds(zoom);
 
@@ -293,6 +323,7 @@
       const existing = tileStore.get(key);
       if (existing) {
         existing.mtime = tile.mtime;
+        existing.version = tile.version || existing.version || 0;
         existing.image = null;
         tileStore.set(key, existing);
       } else {
@@ -301,12 +332,13 @@
           x: tile.x,
           y: tile.y,
           mtime: tile.mtime,
+          version: tile.version || 0,
           image: null,
         });
       }
 
       if (
-        tile.z === zoom &&
+        tile.z === Math.floor(zoom) &&
         tile.x >= b.minX &&
         tile.x <= b.maxX &&
         tile.y >= b.minY &&
@@ -330,7 +362,8 @@
     if (!wsOpen || pendingTileRequest) return;
 
     const b = getVisibleBounds(zoom);
-    const signature = `${zoom}:${b.minX}:${b.maxX}:${b.minY}:${b.maxY}`;
+    const tileZ = Math.floor(zoom);
+    const signature = `${tileZ}:${b.minX}:${b.maxX}:${b.minY}:${b.maxY}`;
     if (!force && signature === lastViewportSignature && !hasDirtyVisibleTiles()) {
       return;
     }
@@ -338,10 +371,11 @@
     const tiles = [];
     for (let x = b.minX; x <= b.maxX; x += 1) {
       for (let y = b.minY; y <= b.maxY; y += 1) {
-        const k = keyFor(zoom, x, y);
+        const k = keyFor(tileZ, x, y);
         const existing = tileStore.get(k);
         const knownMtime = dirtyKeys.has(k) ? 0 : (existing ? existing.mtime : 0);
-        tiles.push({ x, y, known_mtime: knownMtime });
+        const knownVersion = dirtyKeys.has(k) ? 0 : (existing ? existing.version || 0 : 0);
+        tiles.push({ x, y, known_mtime: knownMtime, known_version: knownVersion });
       }
     }
 
@@ -351,7 +385,7 @@
     sendWs({
       type: "request_tiles",
       request_id: `tiles-${requestSeq}`,
-      z: zoom,
+      z: tileZ,
       tiles,
     });
   }
@@ -398,11 +432,25 @@
       return;
     }
 
+    let finalPoints = points;
+    if (overlay.tool === "square" && points.length === 2) {
+      // Expand into 5 points for the backend to trace the square outline
+      const start = points[0];
+      const end = points[1];
+      finalPoints = [
+        start,
+        { x: end.x, y: start.y },
+        end,
+        { x: start.x, y: end.y },
+        start
+      ];
+    }
+
     requestSeq += 1;
     const requestId = `stroke-${requestSeq}`;
     const pending = {
       ...overlay,
-      points,
+      points: finalPoints,
       requestId,
     };
     pendingOverlays.set(requestId, pending);
@@ -462,6 +510,9 @@
       }
 
       if (msg.type === "stroke_result") {
+        for (const tile of msg.updated || []) {
+          installTile(tile);
+        }
         markInvalidated(msg.invalidated || []);
 
         const requestId = msg.request_id;
@@ -469,10 +520,6 @@
           pendingOverlays.delete(requestId);
           scheduleTileRequest(true, true);
           queueRender();
-        } else {
-          for (const tile of msg.updated || []) {
-            installTile(tile);
-          }
         }
       }
 
@@ -482,20 +529,25 @@
         }
         markInvalidated(msg.invalidated || []);
       }
+
+      if (msg.type === "tiles_cleared") {
+        clearAllTiles();
+      }
     });
   }
 
-  penTool.addEventListener("click", () => {
-    tool = "pen";
-    penTool.classList.add("active");
-    eraserTool.classList.remove("active");
-  });
+  function setTool(newTool) {
+    tool = newTool;
+    penTool.classList.toggle("active", tool === "pen");
+    eraserTool.classList.toggle("active", tool === "eraser");
+    lineTool.classList.toggle("active", tool === "line");
+    squareTool.classList.toggle("active", tool === "square");
+  }
 
-  eraserTool.addEventListener("click", () => {
-    tool = "eraser";
-    eraserTool.classList.add("active");
-    penTool.classList.remove("active");
-  });
+  penTool.addEventListener("click", () => setTool("pen"));
+  eraserTool.addEventListener("click", () => setTool("eraser"));
+  lineTool.addEventListener("click", () => setTool("line"));
+  squareTool.addEventListener("click", () => setTool("square"));
 
   penColor.addEventListener("input", () => {
     color = penColor.value;
@@ -503,12 +555,12 @@
 
   brushSize.addEventListener("input", () => {
     size = parseInt(brushSize.value, 10);
-    brushSizeLabel.textContent = `${size}px`;
+    brushSizeLabel.textContent = `${size} px`;
   });
 
   zoomSlider.addEventListener("input", () => {
-    zoom = parseInt(zoomSlider.value, 10);
-    zoomLabel.textContent = `z${zoom}`;
+    zoom = parseFloat(zoomSlider.value);
+    zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;
     queueRender();
     scheduleTileRequest(true, true);
   });
@@ -528,7 +580,7 @@
       tool,
       color,
       size,
-      z: zoom,
+      z: Math.floor(zoom),
       points: [world],
     };
     queueRender();
@@ -542,7 +594,7 @@
       lastCursorSentAt = now;
       sendWs({
         type: "cursor",
-        cursor: { z: zoom, x: world.x, y: world.y },
+        cursor: { z: Math.floor(zoom), x: world.x, y: world.y },
       });
     }
 
@@ -560,6 +612,17 @@
 
     if (!isDrawing || !activeOverlay) return;
 
+    if (activeOverlay.tool === "line" || activeOverlay.tool === "square") {
+      // For line and square tools, only keep the start and current point
+      if (activeOverlay.points.length === 1) {
+        activeOverlay.points.push(world);
+      } else {
+        activeOverlay.points[1] = world;
+      }
+      queueRender();
+      return;
+    }
+
     const last = activeOverlay.points[activeOverlay.points.length - 1];
     const minWorldStep = MIN_STROKE_STEP_PX / scaleForZoom(zoom);
     const dx = world.x - last.x;
@@ -572,6 +635,16 @@
     queueRender();
   });
 
+  function clearAllTiles() {
+    tileStore.clear();
+    dirtyKeys.clear();
+    pendingOverlays.clear();
+    activeOverlay = null;
+    lastViewportSignature = "";
+    queueRender();
+    scheduleTileRequest(true, true);
+  }
+
   function stopInteractions() {
     if (isDrawing) {
       finalizeActiveStroke();
@@ -581,6 +654,21 @@
     panStart = null;
   }
 
+  clearButton.addEventListener("click", async () => {
+    clearButton.disabled = true;
+    try {
+      const response = await fetch("/clear", { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Clear failed: ${response.status}`);
+      }
+      clearAllTiles();
+    } catch (error) {
+      console.error("Unable to clear tiles", error);
+    } finally {
+      clearButton.disabled = false;
+    }
+  });
+
   canvas.addEventListener("mouseup", stopInteractions);
   canvas.addEventListener("mouseleave", stopInteractions);
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -589,18 +677,99 @@
     "wheel",
     (event) => {
       event.preventDefault();
-      const delta = event.deltaY > 0 ? -1 : 1;
+      
+      const worldBefore = screenToWorld(event.clientX, event.clientY);
+
+      // Adjust zoom speed
+      const delta = event.deltaY > 0 ? -0.2 : 0.2;
       const prevZoom = zoom;
       zoom = Math.max(0, Math.min(maxZoom, zoom + delta));
       if (zoom === prevZoom) return;
 
-      zoomSlider.value = String(zoom);
-      zoomLabel.textContent = `z${zoom}`;
+      const rect = canvas.getBoundingClientRect();
+      const px = event.clientX - rect.left;
+      const py = event.clientY - rect.top;
+      const newScale = scaleForZoom(zoom);
+
+      camera.x = worldBefore.x - (px - rect.width / 2) / newScale;
+      camera.y = worldBefore.y - (py - rect.height / 2) / newScale;
+
+      zoomSlider.value = zoom.toFixed(1);
+      zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;
       queueRender();
       scheduleTileRequest(true, true);
     },
     { passive: false },
   );
+
+  const keysPressed = new Set();
+  let wasdTimer = null;
+  let velX = 0;
+  let velY = 0;
+
+  function updateWASD() {
+    let ax = 0;
+    let ay = 0;
+    
+    if (keysPressed.has('w')) ay -= 1;
+    if (keysPressed.has('s')) ay += 1;
+    if (keysPressed.has('a')) ax -= 1;
+    if (keysPressed.has('d')) ax += 1;
+
+    // Normalize diagonal movement
+    if (ax !== 0 && ay !== 0) {
+      const len = Math.sqrt(ax * ax + ay * ay);
+      ax /= len;
+      ay /= len;
+    }
+
+    const scale = scaleForZoom(zoom);
+    const accelSpeed = 2 / scale;
+    
+    velX += ax * accelSpeed;
+    velY += ay * accelSpeed;
+
+    // Friction
+    velX *= 0.82;
+    velY *= 0.82;
+
+    // Stop micro-movements
+    const stopThreshold = 0.05 / scale;
+    if (Math.abs(velX) < stopThreshold) velX = 0;
+    if (Math.abs(velY) < stopThreshold) velY = 0;
+
+    let moved = false;
+    if (velX !== 0 || velY !== 0) {
+      camera.x += velX;
+      camera.y += velY;
+      moved = true;
+    }
+
+    if (moved) {
+      queueRender();
+      scheduleTileRequest(false, false);
+    }
+
+    if (keysPressed.size > 0 || velX !== 0 || velY !== 0) {
+      wasdTimer = requestAnimationFrame(updateWASD);
+    } else {
+      wasdTimer = null;
+    }
+  }
+
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd'].includes(key)) {
+      keysPressed.add(key);
+      if (!wasdTimer) {
+        wasdTimer = requestAnimationFrame(updateWASD);
+      }
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    keysPressed.delete(e.key.toLowerCase());
+  });
 
   window.addEventListener("resize", ensureCanvasSize);
 
