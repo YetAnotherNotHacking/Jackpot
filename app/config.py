@@ -10,7 +10,7 @@ class Config:
         "postgresql://acedraw:acedraw@localhost:5432/acedraw",
     )
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-    MAX_ZOOM = int(os.getenv("MAX_ZOOM", "10"))
+    MAX_ZOOM = int(os.getenv("MAX_ZOOM", "20"))
     MAX_DESCENDANT_DEPTH = int(
         os.getenv(
             "MAX_DESCENDANT_DEPTH",

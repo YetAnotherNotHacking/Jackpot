@@ -11,7 +11,6 @@
   box-sizing: border-box;
 }
 
-html,
 body {
   margin: 0;
   padding: 0;
@@ -75,7 +74,7 @@ body {
   color: var(--white);
   border: 2px solid var(--dark-red);
   font-size: 0.95rem;
-  padding: 8px;
+  padding: 8px 14px 8px 8px; /* Increased right padding */
   cursor: pointer;
   border-radius: 8px;
   display: flex;
@@ -122,6 +121,9 @@ body {
   height: 100%;
   display: block;
   cursor: crosshair;
+  border-radius: 24px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   background:
     linear-gradient(45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,
     linear-gradient(-45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,

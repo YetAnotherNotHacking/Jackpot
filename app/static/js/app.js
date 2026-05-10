@@ -719,6 +719,75 @@
     { passive: false },
   );
 
+  const keysPressed = new Set();
+  let wasdTimer = null;
+  let velX = 0;
+  let velY = 0;
+
+  function updateWASD() {
+    let ax = 0;
+    let ay = 0;
+    
+    if (keysPressed.has('w')) ay -= 1;
+    if (keysPressed.has('s')) ay += 1;
+    if (keysPressed.has('a')) ax -= 1;
+    if (keysPressed.has('d')) ax += 1;
+
+    // Normalize diagonal movement
+    if (ax !== 0 && ay !== 0) {
+      const len = Math.sqrt(ax * ax + ay * ay);
+      ax /= len;
+      ay /= len;
+    }
+
+    const scale = scaleForZoom(zoom);
+    const accelSpeed = 2 / scale;
+    
+    velX += ax * accelSpeed;
+    velY += ay * accelSpeed;
+
+    // Friction
+    velX *= 0.82;
+    velY *= 0.82;
+
+    // Stop micro-movements
+    const stopThreshold = 0.05 / scale;
+    if (Math.abs(velX) < stopThreshold) velX = 0;
+    if (Math.abs(velY) < stopThreshold) velY = 0;
+
+    let moved = false;
+    if (velX !== 0 || velY !== 0) {
+      camera.x += velX;
+      camera.y += velY;
+      moved = true;
+    }
+
+    if (moved) {
+      queueRender();
+      scheduleTileRequest(false, false);
+    }
+
+    if (keysPressed.size > 0 || velX !== 0 || velY !== 0) {
+      wasdTimer = requestAnimationFrame(updateWASD);
+    } else {
+      wasdTimer = null;
+    }
+  }
+
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if (['w', 'a', 's', 'd'].includes(key)) {
+      keysPressed.add(key);
+      if (!wasdTimer) {
+        wasdTimer = requestAnimationFrame(updateWASD);
+      }
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    keysPressed.delete(e.key.toLowerCase());
+  });
+
   window.addEventListener("resize", ensureCanvasSize);
 
   ensureCanvasSize();
