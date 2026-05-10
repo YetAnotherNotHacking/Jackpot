@@ -29,7 +29,7 @@ class TileEngine:
         self.tile_root = tile_root
         self.tile_size = tile_size
         self.max_zoom = max_zoom
-        self.max_descendant_depth = max(10, max_descendant_depth)
+        self.max_descendant_depth = max(0, max_descendant_depth)
         self.repo = repo
         self._lock = threading.RLock()
         os.makedirs(self.tile_root, exist_ok=True)
