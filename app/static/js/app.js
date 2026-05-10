@@ -160,7 +160,21 @@
       const srcSpan = tileSize / factor;
       const sx = localX * srcSpan;
       const sy = localY * srcSpan;
-      ctx.drawImage(ancestor.image, sx, sy, srcSpan, srcSpan, dx, dy, dw, dh);
+      
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(dx, dy, dw, dh);
+      ctx.clip();
+      
+      const scaleX = dw / srcSpan;
+      const scaleY = dh / srcSpan;
+      const drawX = dx - (sx * scaleX);
+      const drawY = dy - (sy * scaleY);
+      const drawW = tileSize * scaleX;
+      const drawH = tileSize * scaleY;
+      
+      ctx.drawImage(ancestor.image, drawX, drawY, drawW, drawH);
+      ctx.restore();
       return true;
     }
 

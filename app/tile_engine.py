@@ -69,13 +69,16 @@ class TileEngine:
 
             local_x = x - (ancestor_x * factor)
             local_y = y - (ancestor_y * factor)
-            src_span = self.tile_size // factor
-            sx = int(local_x * src_span)
-            sy = int(local_y * src_span)
-            crop = ancestor.crop((sx, sy, sx + src_span, sy + src_span))
-            return crop.resize(
+            src_span = self.tile_size / factor
+            sx = local_x * src_span
+            sy = local_y * src_span
+            
+            # Using 'box' parameter in resize uses the full image for interpolation,
+            # avoiding seams/cut-offs at the tile boundaries!
+            return ancestor.resize(
                 (self.tile_size, self.tile_size),
-                Image.Resampling.LANCZOS,
+                resample=Image.Resampling.LANCZOS,
+                box=(sx, sy, sx + src_span, sy + src_span),
             )
 
         return Image.new("RGBA", (self.tile_size, self.tile_size), (0, 0, 0, 0))
