@@ -14,6 +14,6 @@ class Config:
     MAX_DESCENDANT_DEPTH = int(
         os.getenv(
             "MAX_DESCENDANT_DEPTH",
-            os.getenv("MAX_PROPAGATION_DEPTH", "10"),
+            os.getenv("MAX_PROPAGATION_DEPTH", "20"),
         )
     )
