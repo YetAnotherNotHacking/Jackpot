@@ -589,7 +589,6 @@
     const world = screenToWorld(event.clientX, event.clientY);
 
     if (tool === "fill") {
-      // Handle fill as a single click
       requestSeq += 1;
       const requestId = `fill-${requestSeq}`;
       sendWs({
