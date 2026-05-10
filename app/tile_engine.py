@@ -75,7 +75,7 @@ class TileEngine:
             crop = ancestor.crop((sx, sy, sx + src_span, sy + src_span))
             return crop.resize(
                 (self.tile_size, self.tile_size),
-                Image.Resampling.BILINEAR,
+                Image.Resampling.LANCZOS,
             )
 
         return Image.new("RGBA", (self.tile_size, self.tile_size), (0, 0, 0, 0))
@@ -222,6 +222,13 @@ class TileEngine:
 
                             coord = TileCoord(level, tx, ty)
                             if coord not in tile_cache:
+                                if level > z:
+                                    path = self._tile_path(level, tx, ty, ensure_dir=False)
+                                    if not os.path.exists(path):
+                                        # Skip materializing descendants that do not exist yet.
+                                        # They will inherit the antialiased stroke from ancestors when requested.
+                                        continue
+
                                 # Erasing should start from a rebuilt ancestor state
                                 # so deep descendant tiles correctly inherit transparency.
                                 if tool == "eraser" and level > z:
