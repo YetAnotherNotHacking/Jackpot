@@ -13,6 +13,8 @@
 
   const penTool = document.getElementById("penTool");
   const eraserTool = document.getElementById("eraserTool");
+  const lineTool = document.getElementById("lineTool");
+  const squareTool = document.getElementById("squareTool");
   const clearButton = document.getElementById("clearButton");
   const penColor = document.getElementById("penColor");
   const brushSize = document.getElementById("brushSize");
@@ -196,13 +198,27 @@
       return;
     }
 
-    const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
     ctx.beginPath();
-    ctx.moveTo(start.x, start.y);
 
-    for (let i = 1; i < overlay.points.length; i += 1) {
-      const p = worldToScreen(overlay.points[i].x, overlay.points[i].y);
-      ctx.lineTo(p.x, p.y);
+    if (overlay.tool === "square" && overlay.points.length === 2) {
+      // Points is just [start, current] for UI overlay. 
+      // We draw it as a square here.
+      const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+      const end = worldToScreen(overlay.points[1].x, overlay.points[1].y);
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x, start.y);
+      ctx.lineTo(end.x, end.y);
+      ctx.lineTo(start.x, end.y);
+      ctx.closePath();
+    } else {
+      // Normal stroke or line tool
+      const start = worldToScreen(overlay.points[0].x, overlay.points[0].y);
+      ctx.moveTo(start.x, start.y);
+
+      for (let i = 1; i < overlay.points.length; i += 1) {
+        const p = worldToScreen(overlay.points[i].x, overlay.points[i].y);
+        ctx.lineTo(p.x, p.y);
+      }
     }
 
     ctx.stroke();
@@ -416,11 +432,25 @@
       return;
     }
 
+    let finalPoints = points;
+    if (overlay.tool === "square" && points.length === 2) {
+      // Expand into 5 points for the backend to trace the square outline
+      const start = points[0];
+      const end = points[1];
+      finalPoints = [
+        start,
+        { x: end.x, y: start.y },
+        end,
+        { x: start.x, y: end.y },
+        start
+      ];
+    }
+
     requestSeq += 1;
     const requestId = `stroke-${requestSeq}`;
     const pending = {
       ...overlay,
-      points,
+      points: finalPoints,
       requestId,
     };
     pendingOverlays.set(requestId, pending);
@@ -506,17 +536,18 @@
     });
   }
 
-  penTool.addEventListener("click", () => {
-    tool = "pen";
-    penTool.classList.add("active");
-    eraserTool.classList.remove("active");
-  });
+  function setTool(newTool) {
+    tool = newTool;
+    penTool.classList.toggle("active", tool === "pen");
+    eraserTool.classList.toggle("active", tool === "eraser");
+    lineTool.classList.toggle("active", tool === "line");
+    squareTool.classList.toggle("active", tool === "square");
+  }
 
-  eraserTool.addEventListener("click", () => {
-    tool = "eraser";
-    eraserTool.classList.add("active");
-    penTool.classList.remove("active");
-  });
+  penTool.addEventListener("click", () => setTool("pen"));
+  eraserTool.addEventListener("click", () => setTool("eraser"));
+  lineTool.addEventListener("click", () => setTool("line"));
+  squareTool.addEventListener("click", () => setTool("square"));
 
   penColor.addEventListener("input", () => {
     color = penColor.value;
@@ -580,6 +611,17 @@
     }
 
     if (!isDrawing || !activeOverlay) return;
+
+    if (activeOverlay.tool === "line" || activeOverlay.tool === "square") {
+      // For line and square tools, only keep the start and current point
+      if (activeOverlay.points.length === 1) {
+        activeOverlay.points.push(world);
+      } else {
+        activeOverlay.points[1] = world;
+      }
+      queueRender();
+      return;
+    }
 
     const last = activeOverlay.points[activeOverlay.points.length - 1];
     const minWorldStep = MIN_STROKE_STEP_PX / scaleForZoom(zoom);
