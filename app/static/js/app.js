@@ -160,7 +160,21 @@
       const srcSpan = tileSize / factor;
       const sx = localX * srcSpan;
       const sy = localY * srcSpan;
-      ctx.drawImage(ancestor.image, sx, sy, srcSpan, srcSpan, dx, dy, dw, dh);
+      
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(dx, dy, dw, dh);
+      ctx.clip();
+      
+      const scaleX = dw / srcSpan;
+      const scaleY = dh / srcSpan;
+      const drawX = dx - (sx * scaleX);
+      const drawY = dy - (sy * scaleY);
+      const drawW = tileSize * scaleX;
+      const drawH = tileSize * scaleY;
+      
+      ctx.drawImage(ancestor.image, drawX, drawY, drawW, drawH);
+      ctx.restore();
       return true;
     }
 
@@ -589,6 +603,7 @@
     const world = screenToWorld(event.clientX, event.clientY);
 
     if (tool === "fill") {
+      // Handle fill as a single click
       requestSeq += 1;
       const requestId = `fill-${requestSeq}`;
       sendWs({
@@ -704,11 +719,18 @@
     "wheel",
     (event) => {
       event.preventDefault();
+      
+      const oldWorld = screenToWorld(event.clientX, event.clientY);
+      
       // Adjust zoom speed
       const delta = event.deltaY > 0 ? -0.2 : 0.2;
       const prevZoom = zoom;
       zoom = Math.max(0, Math.min(maxZoom, zoom + delta));
       if (zoom === prevZoom) return;
+
+      const newWorld = screenToWorld(event.clientX, event.clientY);
+      camera.x -= (newWorld.x - oldWorld.x);
+      camera.y -= (newWorld.y - oldWorld.y);
 
       zoomSlider.value = zoom.toFixed(1);
       zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;

@@ -53,16 +53,8 @@ class TileEngine:
         path = self._tile_path(z, x, y, ensure_dir=False)
         if not os.path.exists(path):
             return None
-        try:
-            with Image.open(path) as loaded:
-                return loaded.convert("RGBA")
-        except (OSError, IOError):
-            # Corrupted or invalid image file, remove it
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            return None
+        with Image.open(path) as loaded:
+            return loaded.convert("RGBA")
 
     def _build_tile_from_ancestors(self, z: int, x: int, y: int) -> Image.Image:
         # New high-detail tiles inherit their nearest existing ancestor so zooming
@@ -77,14 +69,27 @@ class TileEngine:
 
             local_x = x - (ancestor_x * factor)
             local_y = y - (ancestor_y * factor)
-            src_span = self.tile_size // factor
-            sx = int(local_x * src_span)
-            sy = int(local_y * src_span)
-            crop = ancestor.crop((sx, sy, sx + src_span, sy + src_span))
-            return crop.resize(
+            src_span = self.tile_size / factor
+            sx = local_x * src_span
+            sy = local_y * src_span
+            
+            # Using 'box' parameter in resize uses the full image for interpolation,
+            # avoiding seams/cut-offs at the tile boundaries!
+            resized = ancestor.resize(
                 (self.tile_size, self.tile_size),
-                Image.Resampling.LANCZOS,
+                resample=Image.Resampling.LANCZOS,
+                box=(sx, sy, sx + src_span, sy + src_span),
             )
+            
+            # SDF-like mathematical sharpening: Reconstruct crisp, smooth edges
+            # from the upscaled interpolation gradient.
+            sharpen_factor = min(16.0, factor * 1.5)
+            
+            def sharpen(val: int) -> int:
+                v = (val - 127) * sharpen_factor + 127
+                return max(0, min(255, int(v)))
+            
+            return resized.point(sharpen)
 
         return Image.new("RGBA", (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
@@ -108,15 +113,6 @@ class TileEngine:
                     except OSError:
                         pass
             self.repo.clear_tiles()
-
-    def _clear_tiles_above_level(self, min_z: int) -> None:
-        self.repo.clear_tiles_above_level(min_z)
-        # Delete the directories
-        for level in range(min_z + 1, self.max_zoom + 1):
-            level_dir = os.path.join(self.tile_root, f"z{level}")
-            if os.path.exists(level_dir):
-                import shutil
-                shutil.rmtree(level_dir)
 
     def _world_to_tile(self, wx: float, wy: float, z: int) -> Tuple[int, int, float, float]:
         span = self.tile_world_span(z)
@@ -263,9 +259,6 @@ class TileEngine:
 
             rows = self.repo.upsert_tiles(updates)
 
-            # Clear all higher zoom levels to ensure descendants are rebuilt from updated ancestors
-            self._clear_tiles_above_level(z)
-
         result_updates = []
         for row in rows:
             result_updates.append(
@@ -373,9 +366,6 @@ class TileEngine:
                 updates.append((coord.z, coord.x, coord.y, max(mtime, now_ms)))
 
             rows = self.repo.upsert_tiles(updates)
-
-            # Clear all higher zoom levels to ensure descendants are rebuilt from updated ancestors
-            self._clear_tiles_above_level(z)
 
         result_updates = []
         for row in rows:

@@ -102,8 +102,3 @@ class TileRepository:
                 cur.execute(query, [z, *params])
                 rows = cur.fetchall()
         return {(row["x"], row["y"]): row for row in rows}
-
-    def clear_tiles_above_level(self, min_z: int) -> None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM tiles WHERE z > %s", [min_z])
