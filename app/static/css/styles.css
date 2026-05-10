@@ -1,8 +1,9 @@
 :root {
-  --paper: #000000;
-  --ink: #980000ff;
-  --accent: #d95c37;
-  --soft: #e7dfcf;
+  --dark-red: #980000ff;
+  --light-red: #c00000ff;
+  --black: #000000ff;
+  --white: #ffffffff;
+  --yellow-white: #78634217;
   --panel-width: 230px;
 }
 
@@ -10,15 +11,18 @@
   box-sizing: border-box;
 }
 
-html,
 body {
   margin: 0;
   padding: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  border-top: 12px solid var(--black);
+  border-right: 12px solid var(--black);
+  border-bottom: 12px solid var(--black);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-  color: var(--ink);
-  background: radial-gradient(circle at 20% 20%, #fefaf1, #f2ebdc 60%, #ede5d3);
+  color: var(--white);
+  background: var(--black); /* ensure background behind curved canvas is black */
 }
 
 .layout {
@@ -29,25 +33,27 @@ body {
 }
 
 .toolbar {
-  border-right: 1px solid #c9bea6;
-  background: linear-gradient(180deg, #f7efdf, #efe6d3);
-  padding: 14px;
+  background: var(--black);
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
+  overflow-y: auto;
 }
 
-.brand {
-  width: 92px;
-  height: 92px;
-  border: 2px solid var(--ink);
-  background: #fff8ea;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.toolbar img {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+.brand-logo {
+  width: 100%;
+  max-width: 180px;
+  height: auto;
+  object-fit: contain;
+  margin: -6px auto;
+  display: block;
 }
 
 .tool-group {
@@ -63,35 +69,48 @@ body {
 }
 
 .tool-btn {
-  border: 1px solid #980000ff;
-  background: #000000;
-  color: var(--ink);
+  background: var(--black);
+  color: var(--white);
+  border: 2px solid var(--dark-red);
   font-size: 0.95rem;
-  padding: 8px;
+  padding: 8px 14px 8px 8px; /* Increased right padding */
   cursor: pointer;
+  border-radius: 8px;
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  transition: all 0.2s;
+  gap: 12px;
+}
+
+.tool-icon {
+  width: 20px;
+  height: 20px;
+  filter: invert(1);
 }
 
 .tool-btn.active {
-  background: var(--ink);
-  color: #980000ff;
-  border-color: var(--ink);
+  background: var(--dark-red);
+  border-color: var(--light-red);
+}
+
+.tool-btn.clear {
+  border-color: var(--light-red);
+}
+
+.tool-btn.clear:hover {
+  background: var(--light-red);
 }
 
 .value-label {
   font-size: 0.88rem;
-  color: #4c4128;
-}
-
-.help-text {
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: #574d37;
-  margin: 4px 0 0;
+  color: var(--white);
 }
 
 .canvas-wrap {
   position: relative;
   overflow: hidden;
+  background: var(--black);
 }
 
 #drawCanvas {
@@ -99,12 +118,62 @@ body {
   height: 100%;
   display: block;
   cursor: crosshair;
+  border-radius: 24px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
   background:
-    linear-gradient(45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(-45deg, rgba(120, 99, 66, 0.09) 25%, transparent 25%) -8px 0 / 16px 16px,
-    linear-gradient(45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
-    linear-gradient(-45deg, transparent 75%, rgba(120, 99, 66, 0.09) 75%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, var(--yellow-white) 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(45deg, transparent 75%, var(--yellow-white) 75%) -8px 0 / 16px 16px,
+    linear-gradient(-45deg, transparent 75%, var(--yellow-white) 75%) -8px 0 / 16px 16px,
     #faf6ec;
+}
+
+/* Custom styles for inputs */
+input[type="color"] {
+  -webkit-appearance: none;
+  border: none;
+  width: 100%;
+  height: 40px;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0;
+  background: var(--black);
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: 2px solid var(--dark-red);
+  border-radius: 8px;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
+  padding: 8px 0;
+  accent-color: var(--light-red);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: var(--light-red);
+  cursor: pointer;
+  margin-top: -8px;
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: var(--light-red);
+  border-radius: 3px;
 }
 
 @media (max-width: 900px) {
@@ -115,7 +184,7 @@ body {
 
   .toolbar {
     border-right: none;
-    border-bottom: 1px solid #c9bea6;
+    border-bottom: 1px solid #ffffff;
     flex-direction: row;
     flex-wrap: wrap;
     align-items: flex-start;
