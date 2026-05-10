@@ -22,7 +22,7 @@ body {
   border-bottom: 12px solid var(--black);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   color: var(--white);
-  background: var(--black); /* ensure background behind curved canvas is black */
+  background: radial-gradient(circle at 20% 20%, #fefaf1, #f2ebdc 60%, #ede5d3);
 }
 
 .layout {
@@ -33,11 +33,12 @@ body {
 }
 
 .toolbar {
+  border-right: 5px solid var(--dark-red);
   background: var(--black);
-  padding: 8px;
+  padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
   overflow-y: auto;
 }
 
@@ -52,7 +53,7 @@ body {
   max-width: 180px;
   height: auto;
   object-fit: contain;
-  margin: -6px auto;
+  margin: 0 auto;
   display: block;
 }
 
@@ -110,7 +111,9 @@ body {
 .canvas-wrap {
   position: relative;
   overflow: hidden;
-  background: var(--black);
+  border-radius: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  margin: 12px 12px 12px 0;
 }
 
 #drawCanvas {
@@ -155,7 +158,6 @@ input[type="range"] {
   width: 100%;
   background: transparent;
   padding: 8px 0;
-  accent-color: var(--light-red);
 }
 
 input[type="range"]::-webkit-slider-thumb {
