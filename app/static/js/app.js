@@ -705,11 +705,18 @@
     "wheel",
     (event) => {
       event.preventDefault();
+      
+      const oldWorld = screenToWorld(event.clientX, event.clientY);
+      
       // Adjust zoom speed
       const delta = event.deltaY > 0 ? -0.2 : 0.2;
       const prevZoom = zoom;
       zoom = Math.max(0, Math.min(maxZoom, zoom + delta));
       if (zoom === prevZoom) return;
+
+      const newWorld = screenToWorld(event.clientX, event.clientY);
+      camera.x -= (newWorld.x - oldWorld.x);
+      camera.y -= (newWorld.y - oldWorld.y);
 
       zoomSlider.value = zoom.toFixed(1);
       zoomLabel.textContent = `Layer ${zoom.toFixed(1)}`;
