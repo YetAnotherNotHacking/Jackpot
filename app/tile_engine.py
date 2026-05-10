@@ -75,11 +75,21 @@ class TileEngine:
             
             # Using 'box' parameter in resize uses the full image for interpolation,
             # avoiding seams/cut-offs at the tile boundaries!
-            return ancestor.resize(
+            resized = ancestor.resize(
                 (self.tile_size, self.tile_size),
                 resample=Image.Resampling.LANCZOS,
                 box=(sx, sy, sx + src_span, sy + src_span),
             )
+            
+            # SDF-like mathematical sharpening: Reconstruct crisp, smooth edges
+            # from the upscaled interpolation gradient.
+            sharpen_factor = min(16.0, factor * 1.5)
+            
+            def sharpen(val: int) -> int:
+                v = (val - 127) * sharpen_factor + 127
+                return max(0, min(255, int(v)))
+            
+            return resized.point(sharpen)
 
         return Image.new("RGBA", (self.tile_size, self.tile_size), (0, 0, 0, 0))
 
