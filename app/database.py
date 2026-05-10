@@ -32,17 +32,8 @@ class TileRepository:
                                 y INTEGER NOT NULL,
                                 updated_ms BIGINT NOT NULL,
                                 version BIGINT NOT NULL DEFAULT 1,
-                                image_data BYTEA,
                                 PRIMARY KEY (z, x, y)
                             )
-                            """
-                        )
-                        # Forward-compatible migration for older schemas that
-                        # predate binary image storage.
-                        cur.execute(
-                            """
-                            ALTER TABLE tiles
-                            ADD COLUMN IF NOT EXISTS image_data BYTEA
                             """
                         )
                 return
@@ -53,24 +44,23 @@ class TileRepository:
 
     def upsert_tiles(
         self,
-        tile_updates: Iterable[Tuple[int, int, int, int, bytes | None]],
+        tile_updates: Iterable[Tuple[int, int, int, int]],
     ) -> List[Dict]:
         updates = list(tile_updates)
         if not updates:
             return []
 
-        placeholders = ", ".join(["(%s, %s, %s, %s, %s, 1)"] * len(updates))
-        params: List = []
-        for z, x, y, updated_ms, image_data in updates:
-            params.extend([z, x, y, updated_ms, image_data])
+        placeholders = ", ".join(["(%s, %s, %s, %s, 1)"] * len(updates))
+        params: List[int] = []
+        for z, x, y, updated_ms in updates:
+            params.extend([z, x, y, updated_ms])
 
         query = f"""
-            INSERT INTO tiles (z, x, y, updated_ms, image_data, version)
+            INSERT INTO tiles (z, x, y, updated_ms, version)
             VALUES {placeholders}
             ON CONFLICT (z, x, y)
             DO UPDATE SET
                 updated_ms = EXCLUDED.updated_ms,
-                image_data = COALESCE(EXCLUDED.image_data, tiles.image_data),
                 version = tiles.version + 1
             RETURNING z, x, y, updated_ms, version
         """
@@ -112,70 +102,3 @@ class TileRepository:
                 cur.execute(query, [z, *params])
                 rows = cur.fetchall()
         return {(row["x"], row["y"]): row for row in rows}
-
-    def get_tile_image(
-        self,
-        z: int,
-        x: int,
-        y: int,
-    ) -> bytes | None:
-        query = """
-            SELECT image_data
-            FROM tiles
-            WHERE z = %s AND x = %s AND y = %s
-        """
-        with self._conn() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                try:
-                    cur.execute(query, [z, x, y])
-                    row = cur.fetchone()
-                except psycopg.errors.UndefinedColumn:
-                    return None
-        return row["image_data"] if row else None
-
-    def get_tile_storage_stats(self, z: int, x: int, y: int) -> Dict | None:
-        query = """
-            SELECT z, x, y, updated_ms, version, OCTET_LENGTH(image_data) AS byte_len
-            FROM tiles
-            WHERE z = %s AND x = %s AND y = %s
-        """
-        with self._conn() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                try:
-                    cur.execute(query, [z, x, y])
-                    row = cur.fetchone()
-                except psycopg.errors.UndefinedColumn:
-                    return None
-        return row
-
-    def init_cursors_table(self) -> None:
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS cursors (
-                        client_id TEXT PRIMARY KEY,
-                        z INTEGER NOT NULL,
-                        x FLOAT NOT NULL,
-                        y FLOAT NOT NULL,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                    """
-                )
-
-    def upsert_cursor(self, client_id: str, z: int, x: float, y: float) -> None:
-        query = """
-            INSERT INTO cursors (client_id, z, x, y, updated_at)
-            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-            ON CONFLICT (client_id)
-            DO UPDATE SET z = EXCLUDED.z, x = EXCLUDED.x, y = EXCLUDED.y, updated_at = CURRENT_TIMESTAMP
-        """
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, [client_id, z, x, y])
-
-    def delete_cursor(self, client_id: str) -> None:
-        query = "DELETE FROM cursors WHERE client_id = %s"
-        with self._conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(query, [client_id])
