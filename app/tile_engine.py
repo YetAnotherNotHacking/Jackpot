@@ -101,6 +101,39 @@ class TileEngine:
                         pass
             self.repo.clear_tiles()
 
+    def sync_tiles_to_db(self) -> int:
+        updates = []
+        with self._lock:
+            for root, _, files in os.walk(self.tile_root):
+                dir_name = os.path.basename(root)
+                if not dir_name.startswith('z'):
+                    continue
+                try:
+                    z = int(dir_name[1:])
+                except ValueError:
+                    continue
+                for filename in files:
+                    if filename.endswith(".png"):
+                        name_no_ext = filename[:-4]
+                        try:
+                            parts = name_no_ext.split('-')
+                            if len(parts) != 2:
+                                continue
+                            x, y = int(parts[0]), int(parts[1])
+                            filepath = os.path.join(root, filename)
+                            mtime = int(os.path.getmtime(filepath) * 1000)
+                            updates.append((z, x, y, mtime))
+                        except ValueError:
+                            continue
+            
+            chunk_size = 500
+            total_updated = 0
+            for i in range(0, len(updates), chunk_size):
+                chunk = updates[i:i+chunk_size]
+                self.repo.upsert_tiles(chunk)
+                total_updated += len(chunk)
+        return total_updated
+
     def _world_to_tile(self, wx: float, wy: float, z: int) -> Tuple[int, int, float, float]:
         span = self.tile_world_span(z)
         tx = math.floor(wx / span)

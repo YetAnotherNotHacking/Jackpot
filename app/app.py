@@ -1,10 +1,13 @@
 import json
 import os
+import shutil
 import threading
 import uuid
+import zipfile
 from typing import Dict, List
 
-from flask import Flask, Response, jsonify, render_template, send_file
+from flask import Flask, Response, jsonify, render_template, send_file, request, flash, redirect
+from werkzeug.utils import secure_filename
 from flask_sock import Sock
 from redis import Redis
 
@@ -20,6 +23,7 @@ def create_app() -> Flask:
         template_folder="templates",
     )
     app.config.from_object(Config)
+    app.secret_key = "super-secret-key-for-flash"
 
     repo = TileRepository(app.config["DATABASE_URL"])
     repo.init_db()
@@ -61,6 +65,48 @@ def create_app() -> Flask:
             tile_size=app.config["TILE_SIZE"],
             max_zoom=app.config["MAX_ZOOM"],
         )
+
+    @app.route("/fixup", methods=["GET", "POST"])
+    def fixup():
+        if request.method == "POST":
+            if "backup_zip" not in request.files:
+                flash("No file part")
+                return redirect(request.url)
+            file = request.files["backup_zip"]
+            if file.filename == "":
+                flash("No selected file")
+                return redirect(request.url)
+            if file and file.filename.endswith(".zip"):
+                filename = secure_filename(file.filename)
+                upload_path = os.path.join(app.config["TILE_ROOT"], filename)
+                file.save(upload_path)
+                
+                try:
+                    with zipfile.ZipFile(upload_path, 'r') as zip_ref:
+                        # Extract directly into TILE_ROOT.
+                        # Some zips might have a root folder (like 'tiles/'), we'll extract everything.
+                        # The sync_tiles_to_db method looks for 'z[level]' directories recursively
+                        # Wait, the sync_tiles_to_db method uses os.walk to find 'z[level]' folders,
+                        # but it's better to extract and move if there's a parent folder, 
+                        # or just extract and let sync_tiles_to_db find them anywhere in tile_root.
+                        # Actually sync_tiles_to_db walks the whole tile_root and finds any folder starting with 'z'
+                        zip_ref.extractall(app.config["TILE_ROOT"])
+                    
+                    updated_count = tile_engine.sync_tiles_to_db()
+                    broadcast({"type": "tiles_cleared"}) # force clients to reload
+                    flash(f"Successfully processed {updated_count} tiles from backup.")
+                except Exception as e:
+                    flash(f"Error processing zip: {str(e)}")
+                finally:
+                    if os.path.exists(upload_path):
+                        os.remove(upload_path)
+                        
+                return redirect(request.url)
+            else:
+                flash("Must be a .zip file")
+                return redirect(request.url)
+                
+        return render_template("fixup.html")
 
     @app.route("/healthz")
     def healthz() -> Response:
